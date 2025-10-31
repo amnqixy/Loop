@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Loop Lite — 자동 채점(아이패드 OK)</title>
+<title>Loop Lite — 실시간 자동 채점</title>
 <style>
   body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,system-ui,sans-serif;margin:16px;background:#fffef7;color:#1b1b1b}
   h1{font-size:20px;margin:0 0 8px}
@@ -13,17 +13,21 @@
   button{border:1px solid #e8e2c8;border-radius:10px;background:#fff;padding:8px 12px}
   button:disabled{opacity:.5}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  #preview{max-width:100%;border:1px dashed #e8e2c8;border-radius:10px;margin-top:8px}
+  #cam{width:100%;max-height:48vh;background:#000;border-radius:10px}
+  #preview{max-width:100%;border:1px dashed #e8e2c8;border-radius:10px;margin-top:8px;display:none}
   table{border-collapse:collapse;width:100%;font-size:14px;margin-top:8px}
   th,td{border:1px solid #e8e2c8;padding:6px 8px;text-align:left}
   th{background:#fffbda}
   .ok{color:#0a7d2a;font-weight:700}.no{color:#b00020;font-weight:700}
   .muted{color:#666;font-size:12px}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #e8e2c8}
+  .live{background:#fff3bf;border-color:#ffd43b}
+  details summary{cursor:pointer}
 </style>
 </head>
 <body>
-  <h1>Loop Lite</h1>
-  <p class="muted">사진 → 글자 읽기(OCR) → 자동 채점 → 오답노트</p>
+  <h1>Loop Lite (실시간)</h1>
+  <p class="muted">카메라 화면을 보면서 자동으로 글자를 읽고 채점합니다.</p>
 
   <div class="card">
     <h2>① 정답표</h2>
@@ -36,17 +40,31 @@
   </div>
 
   <div class="card">
-    <h2>② 사진 넣기</h2>
+    <h2>② 실시간 카메라</h2>
     <div class="row">
+      <button id="startCam">Start Camera</button>
+      <button id="startLive" disabled>Live 채점 시작</button>
+      <button id="stopLive" disabled>중지</button>
+      <span id="status" class="muted pill">대기</span>
+    </div>
+    <video id="cam" playsinline muted></video>
+    <details style="margin-top:6px">
+      <summary class="muted">인식 잘 되게 하는 팁</summary>
+      <ul class="muted" style="margin:6px 0 0 18px">
+        <li>종이를 반듯하게, 밝게 비추기</li>
+        <li><code>1:A 2:D 3:B ...</code>를 굵고 진하게 쓰기</li>
+        <li>가능하면 답안 줄을 화면의 아래쪽에 오게 하기</li>
+      </ul>
+    </details>
+    <!-- 사진 모드도 남겨둠(예비용) -->
+    <div class="row" style="margin-top:8px">
       <label>
         <input id="imgInput" type="file" accept="image/*" capture="environment" style="display:none">
-        <button id="pickBtn">이미지 업로드/촬영</button>
+        <button id="pickBtn">사진 모드(예비) - 업로드/촬영</button>
       </label>
-      <button id="ocrBtn" disabled>OCR 실행</button>
-      <span id="status" class="muted"></span>
+      <button id="ocrBtn" disabled>OCR 실행(예비)</button>
     </div>
     <img id="preview" alt="미리보기">
-    <p class="muted">잘 인식되게: 종이를 반듯하게, 밝게. <code>1:A 2:D ...</code>는 굵은 펜으로.</p>
   </div>
 
   <div class="card">
@@ -66,34 +84,45 @@
   <!-- OCR 라이브러리 -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script>
-    // ===== 쉬운 함수들 =====
-    const $ = sel => document.querySelector(sel);
+    // ===== 공통 요소 =====
+    const $ = s => document.querySelector(s);
     const answerKeyEl = $('#answerKey');
     const saveKey = $('#saveKey'), clearKey = $('#clearKey');
-    const imgInput = $('#imgInput'), pickBtn = $('#pickBtn');
-    const ocrBtn = $('#ocrBtn'), statusEl = $('#status');
-    const preview = $('#preview'), summary = $('#summary');
+
+    const cam = $('#cam');
+    const startCamBtn = $('#startCam');
+    const startLiveBtn = $('#startLive');
+    const stopLiveBtn = $('#stopLive');
+    const statusEl = $('#status');
+
+    const preview = $('#preview');
+    const pickBtn = $('#pickBtn');
+    const imgInput = $('#imgInput');
+    const ocrBtn = $('#ocrBtn');
+
     const resultTable = $('#resultTable'), tbody = resultTable.querySelector('tbody');
+    const summary = $('#summary');
     const exportBtn = $('#exportBtn'), wrongBtn = $('#wrongBtn'), wrongBox = $('#wrongBox');
 
     // 저장된 정답표 복구
     const saved = localStorage.getItem('loop_answer_key');
     if (saved) answerKeyEl.value = saved;
 
+    // ===== 유틸 =====
     function parseKey(text){
       const map = new Map();
-      const tokens = text.replace(/\\n/g,' ').trim().split(/\\s+/);
+      const tokens = text.replace(/\n/g,' ').trim().split(/\s+/);
       for (const t of tokens){
-        const m = t.match(/^(\\d+)\\s*[:\\-\\.]?\\s*([A-Z])$/i);
+        const m = t.match(/^(\d+)\s*[:\-\.]?\s*([A-Z])$/i);
         if (m) map.set(parseInt(m[1],10), m[2].toUpperCase());
       }
       return map;
     }
     function answersFromOCR(txt){
       const map = new Map();
-      const clean = txt.replace(/[^\\w:\\s\\-\\.]/g,' ').replace(/\\s+/g,' ');
-      for (const p of clean.split(' ')){
-        const m = p.match(/^(\\d+)\\s*[:\\-\\.]?\\s*([A-D])$/i);
+      const clean = txt.replace(/[^\w:\s\-\.]/g,' ').replace(/\s+/g,' ');
+      for (const part of clean.split(' ')){
+        const m = part.match(/^(\d+)\s*[:\-\.]?\s*([A-D])$/i);
         if (m) map.set(parseInt(m[1],10), m[2].toUpperCase());
       }
       return map;
@@ -110,69 +139,146 @@
     }
     function toCSV(rows){
       const head = 'number,answer,student,correct';
-      return [head, ...rows.map(r=>[r.n,r.k,r.s,r.ok?1:0].join(','))].join('\\n');
+      return [head, ...rows.map(r=>[r.n,r.k,r.s,r.ok?1:0].join(','))].join('\n');
     }
     function wrongNote(rows){
-      return rows.filter(r=>r.k&&r.s&&r.k!==r.s).map(r=>`${r.n}번: 정답 ${r.k}, 내 답 ${r.s}`).join('\\n');
+      return rows.filter(r=>r.k&&r.s&&r.k!==r.s).map(r=>`${r.n}번: 정답 ${r.k}, 내 답 ${r.s}`).join('\n');
+    }
+    function render(rows, correct, total){
+      tbody.innerHTML = '';
+      rows.forEach(r=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${r.n}</td><td>${r.k||'-'}</td><td>${r.s||'-'}</td><td class="${r.ok?'ok':'no'}">${r.ok?'O':'X'}</td>`;
+        tbody.appendChild(tr);
+      });
+      resultTable.style.display='table';
+      summary.textContent = `점수: ${correct}/${total} (${total?Math.round(correct/total*100):0}%)`;
+      const wn = wrongNote(rows);
+      wrongBox.textContent = wn || '오답 없음 🎉';
+      exportBtn.disabled = false; wrongBtn.disabled = false;
+      localStorage.setItem('loop_last_csv', toCSV(rows));
+      localStorage.setItem('loop_last_wrong', wrongBox.textContent);
     }
 
-    // 정답표 버튼
+    // 저장/지우기
     saveKey.onclick = ()=>{ localStorage.setItem('loop_answer_key', answerKeyEl.value.trim()); alert('정답표 저장 완료'); };
     clearKey.onclick = ()=>{ answerKeyEl.value=''; localStorage.removeItem('loop_answer_key'); };
 
-    // 사진 고르기/찍기
+    // ===== 사진 모드(예비용) =====
     pickBtn.onclick = ()=> imgInput.click();
     let imageBlob = null;
     imgInput.onchange = ()=>{
       const f = imgInput.files[0]; if (!f) return;
       imageBlob = f; preview.src = URL.createObjectURL(f);
+      preview.style.display = 'block';
       ocrBtn.disabled = false;
     };
-
-    // OCR 실행
-    async function runOCR(blob){
-      statusEl.textContent = '글자 읽는 중...';
+    async function runOnceOCR(blob){
+      statusEl.textContent = 'OCR(예비) 중...';
       const worker = await Tesseract.createWorker('kor+eng');
       const { data:{ text } } = await worker.recognize(blob);
       await worker.terminate();
       statusEl.textContent = '완료';
       return text;
     }
-
     ocrBtn.onclick = async ()=>{
       const keyMap = parseKey(answerKeyEl.value);
-      if (!keyMap.size){ alert('먼저 정답표를 적고, 저장해 주세요.'); return; }
+      if (!keyMap.size){ alert('먼저 정답표를 저장해 주세요.'); return; }
       if (!imageBlob){ alert('사진을 업로드(또는 촬영)해 주세요.'); return; }
+      const text = await runOnceOCR(imageBlob);
+      const stuMap = answersFromOCR(text);
+      if (!stuMap.size){ statusEl.textContent = '패턴을 못 찾았어요. 예: "1:A 2:D 3:B"'; return; }
+      const {rows, correct, total} = grade(keyMap, stuMap);
+      render(rows, correct, total);
+    };
 
-      ocrBtn.disabled = true;
+    // ===== 실시간 모드 =====
+    let stream = null;
+    let worker = null;
+    let scanning = false;
+    let busy = false;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    startCamBtn.onclick = async ()=>{
       try{
-        const text = await runOCR(imageBlob);
-        const stuMap = answersFromOCR(text);
-        if (!stuMap.size){ statusEl.textContent = '패턴을 못 찾았어요. 예: "1:A 2:D 3:B"'; ocrBtn.disabled=false; return; }
-        const {rows, correct, total} = grade(keyMap, stuMap);
-
-        // 표 렌더
-        tbody.innerHTML = '';
-        rows.forEach(r=>{
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${r.n}</td><td>${r.k||'-'}</td><td>${r.s||'-'}</td><td class="${r.ok?'ok':'no'}">${r.ok?'O':'X'}</td>`;
-          tbody.appendChild(tr);
-        });
-        resultTable.style.display='table';
-        summary.textContent = `점수: ${correct}/${total} (${total?Math.round(correct/total*100):0}%)`;
-
-        const wn = wrongNote(rows);
-        wrongBox.textContent = wn || '오답 없음 🎉';
-        exportBtn.disabled = false; wrongBtn.disabled = false;
-
-        localStorage.setItem('loop_last_csv', toCSV(rows));
-        localStorage.setItem('loop_last_wrong', wrongBox.textContent);
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal:'environment' } }, audio:false });
+        cam.srcObject = stream;
+        await cam.play();
+        cam.setAttribute('playsinline','true'); // iOS 풀스크린 방지
+        startLiveBtn.disabled = false;
+        statusEl.textContent = '카메라 준비됨';
       }catch(e){
-        console.error(e); statusEl.textContent = '오류가 발생했어요';
-      }finally{
-        ocrBtn.disabled = false;
+        console.error(e);
+        alert('카메라 권한을 허용해 주세요.');
       }
     };
+
+    startLiveBtn.onclick = async ()=>{
+      const keyMap = parseKey(answerKeyEl.value);
+      if (!keyMap.size){ alert('먼저 정답표를 저장해 주세요.'); return; }
+      if (!cam.srcObject){ alert('먼저 Start Camera를 눌러 주세요.'); return; }
+
+      if (!worker){
+        statusEl.textContent = '엔진 준비 중...';
+        worker = await Tesseract.createWorker('kor+eng');
+      }
+      scanning = true;
+      startLiveBtn.disabled = true;
+      stopLiveBtn.disabled = false;
+      statusEl.textContent = 'Live ON';
+      statusEl.classList.add('live');
+      loopOCR();
+    };
+
+    stopLiveBtn.onclick = async ()=>{
+      scanning = false;
+      startLiveBtn.disabled = false;
+      stopLiveBtn.disabled = true;
+      statusEl.textContent = '중지';
+      statusEl.classList.remove('live');
+      if (worker){ await worker.terminate(); worker = null; }
+    };
+
+    async function loopOCR(){
+      if (!scanning) return;
+      if (busy){ setTimeout(loopOCR, 200); return; }
+      busy = true;
+
+      // 1) 비디오 프레임을 작은 캔버스로 복사 (속도 ↑)
+      const vw = cam.videoWidth || 640;
+      const vh = cam.videoHeight || 480;
+      const targetW = 640; // 해상도(낮을수록 빠름)
+      const targetH = Math.round(vh * (targetW / vw));
+      canvas.width = targetW;
+      canvas.height = targetH;
+
+      // ★ 아래쪽만 잘라서 속도 올리기(답안 줄이 아래쪽에 있다면)
+      const cropTop = Math.round(targetH * 0.6); // 아래쪽 40%만 사용
+      ctx.drawImage(cam, 0, 0, vw, vh, 0, 0, targetW, targetH);
+      const imgData = ctx.getImageData(0, cropTop, targetW, targetH - cropTop);
+      canvas.width = targetW;
+      canvas.height = imgData.height;
+      ctx.putImageData(imgData, 0, 0);
+
+      try{
+        const { data:{ text } } = await worker.recognize(canvas);
+        const keyMap = parseKey(answerKeyEl.value);
+        const stuMap = answersFromOCR(text);
+        if (stuMap.size){
+          const {rows, correct, total} = grade(keyMap, stuMap);
+          render(rows, correct, total);
+        }
+        statusEl.textContent = 'Live ON';
+      }catch(e){
+        console.error(e);
+        statusEl.textContent = '에러';
+      }finally{
+        busy = false;
+        // 다음 프레임까지 약간 쉬기 (배터리/발열 방지)
+        setTimeout(loopOCR, 1200); // 1.2초마다 갱신
+      }
+    }
 
     // 내보내기/복사
     exportBtn.onclick = ()=>{
@@ -187,6 +293,11 @@
       try{ await navigator.clipboard.writeText(text); alert('오답노트를 복사했어요'); }
       catch{ alert('복사 권한이 거부되었어요. 화면에서 길게 눌러 복사해 주세요.'); }
     };
+
+    // 페이지 떠날 때 카메라 정리(선택)
+    window.addEventListener('beforeunload', ()=>{
+      if (stream){ stream.getTracks().forEach(t=>t.stop()); }
+    });
   </script>
 </body>
 </html>

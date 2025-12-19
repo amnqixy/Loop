@@ -7,7 +7,7 @@
 <style>
   :root{
     --bg:#fffef7; --card:#fff; --ink:#1b1b1b; --muted:#666;
-    --line:#e8e2c8; --accent:#ffe680; --good:#0a7d2a; --bad:#b00020;
+    --line:#e8e2c8; --good:#0a7d2a; --bad:#b00020;
   }
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,system-ui,sans-serif;margin:16px;background:var(--bg);color:var(--ink)}
@@ -27,24 +27,25 @@
   code{background:#fffbda;border:1px solid var(--line);padding:1px 6px;border-radius:8px}
   details summary{cursor:pointer}
 
-  /* 카메라 + 오버레이 */
   .camWrap{position:relative;width:100%;max-height:52vh;overflow:hidden;border-radius:12px;border:1px solid var(--line);background:#000}
   video{width:100%;height:auto;display:block}
   .overlay{position:absolute;inset:0;pointer-events:none}
   .box{
     position:absolute;border:2px solid #00a3ff;border-radius:10px;
     background:rgba(0,163,255,0.08);
+    pointer-events:auto; touch-action:none;
     display:flex;align-items:center;justify-content:center;
     color:#fff;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.6);
-    pointer-events:auto; touch-action:none;
   }
-  .box .label{position:absolute;top:-10px;left:-10px;background:#00a3ff;color:#fff;
-    border-radius:999px;padding:2px 8px;font-size:12px;border:1px solid rgba(255,255,255,.5)}
+  .box .label{
+    position:absolute;top:-10px;left:-10px;background:#00a3ff;color:#fff;
+    border-radius:999px;padding:2px 8px;font-size:12px;border:1px solid rgba(255,255,255,.5)
+  }
   .box .handle{
     position:absolute;right:-10px;bottom:-10px;width:22px;height:22px;border-radius:8px;
     background:#00a3ff;border:2px solid rgba(255,255,255,.7)
   }
-  .hint{margin-top:8px}
+
   table{border-collapse:collapse;width:100%;font-size:14px;margin-top:8px}
   th,td{border:1px solid var(--line);padding:6px 8px;text-align:left}
   th{background:#fffbda}
@@ -57,14 +58,11 @@
 
 <body>
   <h1>Loop - 실시간 자동 채점 & 오답노트</h1>
-  <p class="sub">문제를 비추고, 1~5 중 “가려진 숫자”를 내 답으로 판단해 실시간 채점합니다. 틀리면 자동 저장됩니다.</p>
+  <p class="sub">선택지 줄(1~5)을 비추고, 가려져서 “안 보이는 숫자 1개”를 내 답으로 판단합니다. 틀리면 자동 저장됩니다.</p>
 
   <div class="card">
     <h2 style="margin:0 0 8px">① 정답표</h2>
-    <p class="muted">
-      가장 쉬운 형식(숫자형 추천): <code>1:3 2:5 3:1</code><br/>
-      (뜻: 1번 정답=3, 2번 정답=5, 3번 정답=1)
-    </p>
+    <p class="muted">추천 형식: <code>1:3 2:5 3:1</code> (뜻: 1번 정답=3)</p>
     <textarea id="answerKey" placeholder="예) 1:3 2:5 3:1 4:2 5:4"></textarea>
     <div class="row" style="margin-top:6px">
       <button id="saveKey">정답표 저장</button>
@@ -72,19 +70,19 @@
       <button id="clearKey">지우기</button>
       <span id="keyStatus" class="muted"></span>
     </div>
-    <details class="hint">
-      <summary class="muted">정답을 A/B/C/D/E로 쓰고 싶으면?</summary>
-      <div class="muted">A=1, B=2, C=3, D=4, E=5로 자동 변환해줍니다. 예: <code>1:C</code> 는 <code>1:3</code>으로 처리.</div>
+    <details style="margin-top:8px">
+      <summary class="muted">A/B/C/D/E로 적고 싶으면?</summary>
+      <div class="muted">A=1, B=2, C=3, D=4, E=5로 자동 변환합니다. 예: <code>1:C</code>는 <code>1:3</code>으로 처리.</div>
     </details>
   </div>
 
   <div class="card">
-    <h2 style="margin:0 0 8px">② 카메라 & 가이드 박스</h2>
+    <h2 style="margin:0 0 8px">② 카메라 & 가이드 박스(1개)</h2>
     <div class="row">
       <button id="startCam">카메라 켜기</button>
       <button id="toggleEdit" disabled>편집 모드: ON</button>
-      <button id="saveBoxes" disabled>박스 저장</button>
-      <button id="resetBoxes" disabled>박스 초기화</button>
+      <button id="saveBox" disabled>박스 저장</button>
+      <button id="resetBox" disabled>박스 초기화</button>
 
       <button id="startLive" disabled>실시간 채점 시작</button>
       <button id="stopLive" disabled>중지</button>
@@ -105,12 +103,12 @@
       <div class="overlay" id="overlay"></div>
     </div>
 
-    <details class="hint">
-      <summary class="muted">사용 팁 (진짜 중요)</summary>
+    <details style="margin-top:8px">
+      <summary class="muted">편집 모드에서 뭘 맞추면 되나요?</summary>
       <ul class="muted" style="margin:8px 0 0 18px">
-        <li>편집 모드에서 파란 박스 1~5를 “문제지의 1,2,3,4,5 숫자 위치”에 정확히 맞춰요.</li>
-        <li>답은 “내가 고른 숫자”를 동그라미/손/스티커 등으로 <b>완전히 가려서 숫자가 안 보이게</b> 해요.</li>
-        <li>조명을 밝게, 흔들리지 않게(책상 위).</li>
+        <li>파란 박스 1개가 “선택지 숫자 1~5가 있는 줄 전체”를 감싸도록 맞추면 됩니다.</li>
+        <li>답은 내가 고른 숫자를 동그라미/손/스티커로 완전히 가려서 숫자가 안 보이게 합니다.</li>
+        <li>밝게, 흔들리지 않게.</li>
       </ul>
     </details>
   </div>
@@ -138,14 +136,10 @@
     <div id="thumbs" class="thumbs"></div>
   </div>
 
-  <!-- OCR / ZIP 라이브러리 -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
 <script>
-/* =========================
-   0) 아주 기본 도구
-========================= */
 const $ = s => document.querySelector(s);
 const statusEl = $('#status');
 function setStatus(text, live=false){
@@ -154,16 +148,14 @@ function setStatus(text, live=false){
 }
 function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
 
-/* =========================
-   1) 정답표
-========================= */
+/* 1) 정답표 */
 const answerKeyEl = $('#answerKey');
 const saveKeyBtn = $('#saveKey');
 const applyKeyBtn = $('#applyKey');
 const clearKeyBtn = $('#clearKey');
 const keyStatus = $('#keyStatus');
 
-let answerKeyMap = new Map(); // q -> 1..5
+let answerKeyMap = new Map();
 
 function normalizeChoice(x){
   if (!x) return null;
@@ -176,9 +168,7 @@ function normalizeChoice(x){
   if (t==='E') return 5;
   return null;
 }
-
 function parseAnswerKey(text){
-  // 예: "1:3 2:5 3:1" 또는 줄바꿈 가능
   const map = new Map();
   const tokens = text.replace(/\n/g,' ').trim().split(/\s+/);
   for (const tok of tokens){
@@ -191,16 +181,16 @@ function parseAnswerKey(text){
   return map;
 }
 
-const savedKey = localStorage.getItem('loop_answer_key_v2');
+const savedKey = localStorage.getItem('loop_answer_key_v3');
 if (savedKey) answerKeyEl.value = savedKey;
 
 saveKeyBtn.onclick = ()=>{
-  localStorage.setItem('loop_answer_key_v2', answerKeyEl.value.trim());
+  localStorage.setItem('loop_answer_key_v3', answerKeyEl.value.trim());
   alert('정답표를 저장했어요.');
 };
 clearKeyBtn.onclick = ()=>{
   answerKeyEl.value = '';
-  localStorage.removeItem('loop_answer_key_v2');
+  localStorage.removeItem('loop_answer_key_v3');
   answerKeyMap = new Map();
   keyStatus.textContent = '';
 };
@@ -210,15 +200,13 @@ applyKeyBtn.onclick = ()=>{
   if (!answerKeyMap.size) alert('정답표 형식이 비어있거나 인식이 안 됐어요. 예: 1:3 2:5');
 };
 
-/* =========================
-   2) 카메라 & 박스(편집)
-========================= */
+/* 2) 카메라 & 단일 박스 */
 const cam = $('#cam');
 const overlay = $('#overlay');
 const startCamBtn = $('#startCam');
 const toggleEditBtn = $('#toggleEdit');
-const saveBoxesBtn = $('#saveBoxes');
-const resetBoxesBtn = $('#resetBoxes');
+const saveBoxBtn = $('#saveBox');
+const resetBoxBtn = $('#resetBox');
 const startLiveBtn = $('#startLive');
 const stopLiveBtn = $('#stopLive');
 
@@ -230,98 +218,88 @@ const liveInfo = $('#liveInfo');
 let stream = null;
 let editMode = true;
 
-// 박스는 "비디오 화면 기준 비율"로 저장 (0~1)
-let boxes = [
-  {id:1, x:0.08, y:0.70, w:0.12, h:0.18},
-  {id:2, x:0.24, y:0.70, w:0.12, h:0.18},
-  {id:3, x:0.40, y:0.70, w:0.12, h:0.18},
-  {id:4, x:0.56, y:0.70, w:0.12, h:0.18},
-  {id:5, x:0.72, y:0.70, w:0.12, h:0.18},
-];
+// 단일 박스(비율 0~1)
+let choiceBox = { x:0.08, y:0.65, w:0.84, h:0.22 };
 
-function loadBoxes(){
-  const saved = localStorage.getItem('loop_boxes_v2');
+function loadBox(){
+  const saved = localStorage.getItem('loop_choice_box_v3');
   if (saved){
-    try{ boxes = JSON.parse(saved); }catch{}
+    try{ choiceBox = JSON.parse(saved); }catch{}
   }
 }
-function saveBoxes(){
-  localStorage.setItem('loop_boxes_v2', JSON.stringify(boxes));
+function saveBox(){
+  localStorage.setItem('loop_choice_box_v3', JSON.stringify(choiceBox));
 }
+loadBox();
 
-loadBoxes();
-
-function renderBoxes(){
+function renderBox(){
   overlay.innerHTML = '';
   const wrap = overlay.getBoundingClientRect();
-  boxes.forEach((b, idx)=>{
-    const el = document.createElement('div');
-    el.className = 'box';
-    el.dataset.id = b.id;
 
-    const label = document.createElement('div');
-    label.className = 'label';
-    label.textContent = String(b.id);
+  const el = document.createElement('div');
+  el.className = 'box';
 
-    const handle = document.createElement('div');
-    handle.className = 'handle';
+  const label = document.createElement('div');
+  label.className = 'label';
+  label.textContent = '선택지(1~5)';
 
-    el.appendChild(label);
-    el.appendChild(handle);
-    overlay.appendChild(el);
+  const handle = document.createElement('div');
+  handle.className = 'handle';
 
-    function applyPos(){
-      const W = wrap.width, H = wrap.height;
-      el.style.left = (b.x * W) + 'px';
-      el.style.top  = (b.y * H) + 'px';
-      el.style.width  = (b.w * W) + 'px';
-      el.style.height = (b.h * H) + 'px';
-      el.style.display = editMode ? 'flex' : 'none';
+  el.appendChild(label);
+  el.appendChild(handle);
+  overlay.appendChild(el);
+
+  function applyPos(){
+    const W = wrap.width, H = wrap.height;
+    el.style.left = (choiceBox.x * W) + 'px';
+    el.style.top  = (choiceBox.y * H) + 'px';
+    el.style.width  = (choiceBox.w * W) + 'px';
+    el.style.height = (choiceBox.h * H) + 'px';
+    el.style.display = editMode ? 'flex' : 'none';
+  }
+  applyPos();
+
+  let dragging=false, resizing=false;
+  let startX=0, startY=0, startBox=null;
+
+  el.addEventListener('pointerdown', (e)=>{
+    if (!editMode) return;
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    const isHandle = (e.clientX > rect.right-30 && e.clientY > rect.bottom-30);
+    resizing = isHandle;
+    dragging = !isHandle;
+    startX = e.clientX; startY = e.clientY;
+    startBox = {...choiceBox};
+    el.setPointerCapture(e.pointerId);
+  });
+
+  el.addEventListener('pointermove', (e)=>{
+    if (!editMode) return;
+    if (!dragging && !resizing) return;
+    const W = wrap.width, H = wrap.height;
+    const dx = (e.clientX - startX) / W;
+    const dy = (e.clientY - startY) / H;
+
+    if (dragging){
+      choiceBox.x = clamp(startBox.x + dx, 0, 1);
+      choiceBox.y = clamp(startBox.y + dy, 0, 1);
+    } else {
+      choiceBox.w = clamp(startBox.w + dx, 0.10, 0.98);
+      choiceBox.h = clamp(startBox.h + dy, 0.08, 0.60);
     }
     applyPos();
-
-    // 드래그(이동)
-    let dragging = false, resizing = false;
-    let startX=0, startY=0, startBox=null;
-
-    el.addEventListener('pointerdown', (e)=>{
-      if (!editMode) return;
-      e.preventDefault();
-      const rect = el.getBoundingClientRect();
-      const isHandle = (e.clientX > rect.right-30 && e.clientY > rect.bottom-30);
-      resizing = isHandle;
-      dragging = !isHandle;
-      startX = e.clientX; startY = e.clientY;
-      startBox = {...b};
-      el.setPointerCapture(e.pointerId);
-    });
-
-    el.addEventListener('pointermove', (e)=>{
-      if (!editMode) return;
-      if (!dragging && !resizing) return;
-      const W = wrap.width, H = wrap.height;
-      const dx = (e.clientX - startX) / W;
-      const dy = (e.clientY - startY) / H;
-
-      if (dragging){
-        b.x = clamp(startBox.x + dx, 0, 1);
-        b.y = clamp(startBox.y + dy, 0, 1);
-      }else{
-        b.w = clamp(startBox.w + dx, 0.04, 0.6);
-        b.h = clamp(startBox.h + dy, 0.06, 0.6);
-      }
-      applyPos();
-    });
-
-    el.addEventListener('pointerup', ()=>{
-      dragging = false; resizing = false;
-    });
-
-    window.addEventListener('resize', applyPos);
   });
+
+  el.addEventListener('pointerup', ()=>{
+    dragging=false; resizing=false;
+  });
+
+  window.addEventListener('resize', applyPos);
 }
 
-renderBoxes();
+renderBox();
 
 startCamBtn.onclick = async ()=>{
   try{
@@ -333,67 +311,56 @@ startCamBtn.onclick = async ()=>{
     await cam.play();
 
     toggleEditBtn.disabled = false;
-    saveBoxesBtn.disabled = false;
-    resetBoxesBtn.disabled = false;
+    saveBoxBtn.disabled = false;
+    resetBoxBtn.disabled = false;
     startLiveBtn.disabled = false;
 
     setStatus('카메라 준비됨');
-    renderBoxes();
+    renderBox();
   }catch(e){
     console.error(e);
-    alert('카메라 권한을 허용해 주세요. (사파리에서 권한 팝업이 뜰 거예요)');
+    alert('카메라 권한을 허용해 주세요.');
   }
 };
 
 toggleEditBtn.onclick = ()=>{
   editMode = !editMode;
   toggleEditBtn.textContent = '편집 모드: ' + (editMode ? 'ON' : 'OFF');
-  renderBoxes();
+  renderBox();
 };
 
-saveBoxesBtn.onclick = ()=>{
-  saveBoxes();
+saveBoxBtn.onclick = ()=>{
+  saveBox();
   alert('박스를 저장했어요.');
 };
 
-resetBoxesBtn.onclick = ()=>{
-  boxes = [
-    {id:1, x:0.08, y:0.70, w:0.12, h:0.18},
-    {id:2, x:0.24, y:0.70, w:0.12, h:0.18},
-    {id:3, x:0.40, y:0.70, w:0.12, h:0.18},
-    {id:4, x:0.56, y:0.70, w:0.12, h:0.18},
-    {id:5, x:0.72, y:0.70, w:0.12, h:0.18},
-  ];
-  renderBoxes();
+resetBoxBtn.onclick = ()=>{
+  choiceBox = { x:0.08, y:0.65, w:0.84, h:0.22 };
+  renderBox();
 };
 
 prevQBtn.onclick = ()=> qNumEl.value = Math.max(1, (parseInt(qNumEl.value,10)||1) - 1);
 nextQBtn.onclick = ()=> qNumEl.value = (parseInt(qNumEl.value,10)||1) + 1;
 
-/* =========================
-   3) 실시간 OCR: "가려진 숫자" 찾기
-========================= */
+/* 3) 실시간 OCR: 단일 박스에서 “보이는 숫자들”만 뽑기 */
 let worker = null;
 let liveOn = false;
 let busy = false;
 
-// 안정화(같은 답이 연속으로 나오면 확정)
-let history = []; // 최근 N번 내 답(숫자)
+let history = [];
 const HISTORY_N = 3;
 
-// 결과 저장
 const resultLine = $('#resultLine');
 const resultTable = $('#resultTable');
 const resultBody = $('#resultBody');
 const clearResultsBtn = $('#clearResults');
-let gradedResults = new Map(); // q -> {correct, my, ok, time}
+let gradedResults = new Map();
 
-// 오답 저장
 const exportZipBtn = $('#exportZip');
 const clearWrongBtn = $('#clearWrong');
 const thumbsEl = $('#thumbs');
 const wrongStatus = $('#wrongStatus');
-let wrongItems = []; // {q, correct, my, dataUrl}
+let wrongItems = [];
 
 function refreshWrongUI(){
   thumbsEl.innerHTML = '';
@@ -414,10 +381,10 @@ function refreshWrongUI(){
 }
 
 function saveWrongToStorage(){
-  try{ localStorage.setItem('loop_wrong_v2', JSON.stringify(wrongItems)); }catch{}
+  try{ localStorage.setItem('loop_wrong_v3', JSON.stringify(wrongItems)); }catch{}
 }
 function loadWrongFromStorage(){
-  const saved = localStorage.getItem('loop_wrong_v2');
+  const saved = localStorage.getItem('loop_wrong_v3');
   if (saved){
     try{ wrongItems = JSON.parse(saved) || []; }catch{}
   }
@@ -427,7 +394,7 @@ loadWrongFromStorage();
 
 clearWrongBtn.onclick = ()=>{
   wrongItems = [];
-  localStorage.removeItem('loop_wrong_v2');
+  localStorage.removeItem('loop_wrong_v3');
   refreshWrongUI();
 };
 
@@ -444,14 +411,12 @@ async function initWorker(){
   worker = await Tesseract.createWorker('eng');
   await worker.setParameters({
     tessedit_char_whitelist: '12345',
-    // 한 글자 인식에 유리한 설정
-    tessedit_pageseg_mode: '10'
+    tessedit_pageseg_mode: '6'
   });
   setStatus('준비 완료');
 }
 
-function getVideoFrameToCanvas(){
-  // 비디오 프레임을 캔버스로 복사
+function getFrameCanvas(){
   const vw = cam.videoWidth || 640;
   const vh = cam.videoHeight || 480;
   const canvas = document.createElement('canvas');
@@ -462,45 +427,40 @@ function getVideoFrameToCanvas(){
   return canvas;
 }
 
-async function recognizeBoxDigit(canvas, box){
-  // box(비율좌표)를 실제 픽셀로 잘라서 OCR
-  const vw = canvas.width, vh = canvas.height;
-  const x = Math.round(box.x * vw);
-  const y = Math.round(box.y * vh);
-  const w = Math.round(box.w * vw);
-  const h = Math.round(box.h * vh);
+async function recognizeVisibleDigits(frame){
+  const vw = frame.width, vh = frame.height;
+  const x = Math.round(choiceBox.x * vw);
+  const y = Math.round(choiceBox.y * vh);
+  const w = Math.round(choiceBox.w * vw);
+  const h = Math.round(choiceBox.h * vh);
 
-  // 작은 크기로 줄여서 속도 확보
-  const targetW = 140;
-  const targetH = Math.round(h * (targetW / Math.max(1,w)));
+  const targetW = 520;
+  const targetH = Math.max(80, Math.round(h * (targetW / Math.max(1,w))));
 
   const cut = document.createElement('canvas');
   cut.width = targetW;
   cut.height = targetH;
-  const cctx = cut.getContext('2d');
-  cctx.drawImage(canvas, x, y, w, h, 0, 0, targetW, targetH);
+  const ctx = cut.getContext('2d');
+  ctx.drawImage(frame, x, y, w, h, 0, 0, targetW, targetH);
 
   const { data } = await worker.recognize(cut);
-  const txt = (data.text || '').trim().replace(/\s+/g,'');
-  const conf = data.confidence ?? 0;
+  const text = (data.text || '').replace(/\s+/g,'');
+  const found = (text.match(/[1-5]/g) || []).map(d => parseInt(d,10));
 
-  // txt가 '1'~'5'인지
-  const digit = /^[1-5]$/.test(txt) ? parseInt(txt,10) : null;
-  return { digit, conf };
+  const set = new Set(found);
+  return set; // 보이는 숫자 집합
 }
 
-function majorityChoice(arr){
-  // 가장 많이 나온 값을 선택
-  const cnt = new Map();
-  arr.forEach(v=> cnt.set(v, (cnt.get(v)||0)+1));
-  let best=null, bestN=0;
-  for (const [k,n] of cnt.entries()){
-    if (n>bestN){ best=k; bestN=n; }
+function stableChoiceUpdate(myChoice){
+  if (myChoice){
+    history.push(myChoice);
+    if (history.length > HISTORY_N) history.shift();
+  } else {
+    history = [];
   }
-  return best;
+  const stable = (history.length === HISTORY_N && history.every(v=>v===history[0]));
+  return stable ? history[0] : null;
 }
-
-function pad2(n){ return String(n).padStart(2,'0'); }
 
 async function tick(){
   if (!liveOn) return;
@@ -509,60 +469,27 @@ async function tick(){
 
   try{
     const q = parseInt(qNumEl.value,10) || 1;
-
-    // 정답표 적용 여부
     const correct = answerKeyMap.get(q) || null;
 
-    const frame = getVideoFrameToCanvas();
+    const frame = getFrameCanvas();
+    const visibles = await recognizeVisibleDigits(frame);
 
-    // 1~5 박스를 OCR해서 “보이는 숫자” 판단
-    // 보이면 digit이 나옴, 가리면 digit이 null일 확률이 커짐
-    const visibles = new Set();
-    for (const b of boxes){
-      const r = await recognizeBoxDigit(frame, b);
-      // 박스 번호(1~5)와 같은 숫자가 보이면 visible 처리(신뢰도 기준)
-      if (r.digit === b.id && r.conf >= 55){
-        visibles.add(b.id);
-      }
-    }
-
-    // 가려진 숫자 = (1~5 중 visible에 없는 것)
     const hidden = [1,2,3,4,5].filter(n => !visibles.has(n));
+    const myChoice = (hidden.length === 1) ? hidden[0] : null;
 
-    let myChoice = null;
-    if (hidden.length === 1){
-      myChoice = hidden[0];
-    } else {
-      // 불안정하면 확정하지 않음
-      myChoice = null;
-    }
+    const finalChoice = stableChoiceUpdate(myChoice);
 
-    // 안정화: 같은 값이 3번 연속 나오면 확정
-    if (myChoice){
-      history.push(myChoice);
-      if (history.length > HISTORY_N) history.shift();
-    } else {
-      history = [];
-    }
-
-    const stable = (history.length === HISTORY_N && history.every(v=>v===history[0]));
-    const finalChoice = stable ? history[0] : null;
-
-    // 화면 표시
     liveInfo.textContent =
-      finalChoice
-        ? `내 답 확정: ${finalChoice}`
-        : (myChoice ? `감지 중: ${myChoice} (확정 전)` : '감지 중...');
+      finalChoice ? `내 답 확정: ${finalChoice}` :
+      (myChoice ? `감지 중: ${myChoice} (확정 전)` : '감지 중...');
 
     if (finalChoice && correct){
       const ok = (finalChoice === correct);
-
-      // 같은 문제를 계속 덮어쓰기 방지: 이미 저장된 결과면 다시 저장 안 함
       const prev = gradedResults.get(q);
+
       if (!prev || prev.my !== finalChoice){
         gradedResults.set(q, { correct, my: finalChoice, ok, time: Date.now() });
 
-        // 결과 테이블 갱신
         resultBody.innerHTML = '';
         const entries = Array.from(gradedResults.entries()).sort((a,b)=>a[0]-b[0]);
         entries.forEach(([qn, r])=>{
@@ -579,11 +506,9 @@ async function tick(){
 
         resultLine.innerHTML = `Q${q} • 정답 ${correct} • 내 답 ${finalChoice} • <span class="${ok?'good':'bad'}">${ok?'✅ 정답':'❌ 오답'}</span>`;
 
-        // 오답이면 자동 캡처 저장(중복 방지)
         if (!ok){
           const already = wrongItems.some(it => it.q === q);
           if (!already){
-            // 캡처(프레임을 jpg로)
             const cap = document.createElement('canvas');
             cap.width = frame.width; cap.height = frame.height;
             cap.getContext('2d').drawImage(frame, 0, 0);
@@ -594,34 +519,29 @@ async function tick(){
             refreshWrongUI();
           }
         }
-
-        // 다음 문제로 자동 이동(원하면 주석 해제)
-        // qNumEl.value = q + 1;
       }
     } else if (finalChoice && !correct){
-      resultLine.textContent = `Q${q} • 내 답은 ${finalChoice}로 보이는데, 정답표에 Q${q} 정답이 없어요.`;
+      resultLine.textContent = `Q${q} • 내 답은 ${finalChoice}인데, 정답표에 Q${q} 정답이 없어요.`;
     }
   } catch(e){
     console.error(e);
     setStatus('에러', true);
   } finally {
     busy = false;
-    // 너무 자주 돌리면 아이패드가 뜨거워질 수 있어 1.2초마다 갱신
     setTimeout(tick, 1200);
   }
 }
 
 startLiveBtn.onclick = async ()=>{
   if (!cam.srcObject){ alert('먼저 “카메라 켜기”를 눌러주세요.'); return; }
-  if (!answerKeyMap.size){
-    alert('먼저 “정답표 적용”을 눌러 정답표를 적용해 주세요.');
-    return;
-  }
+  if (!answerKeyMap.size){ alert('먼저 “정답표 적용”을 눌러 주세요.'); return; }
+
   await initWorker();
   liveOn = true;
+
   editMode = false;
   toggleEditBtn.textContent = '편집 모드: OFF';
-  renderBoxes();
+  renderBox();
 
   startLiveBtn.disabled = true;
   stopLiveBtn.disabled = false;
@@ -647,24 +567,19 @@ window.addEventListener('beforeunload', ()=>{
   if (stream){ stream.getTracks().forEach(t=>t.stop()); }
 });
 
-/* =========================
-   4) ZIP 내보내기
-========================= */
+/* 4) ZIP 내보내기 */
 exportZipBtn.onclick = async ()=>{
   if (!wrongItems.length){ alert('오답이 없습니다.'); return; }
 
   const zip = new JSZip();
 
-  // 오답 CSV
   const lines = ['question,correct,my'];
   wrongItems.forEach(it => lines.push(`${it.q},${it.correct},${it.my}`));
   zip.file('wrong_list.csv', lines.join('\n'));
 
-  // 박스 설정, 정답표 저장
-  zip.file('boxes.json', JSON.stringify(boxes, null, 2));
+  zip.file('choice_box.json', JSON.stringify(choiceBox, null, 2));
   zip.file('answer_key.txt', answerKeyEl.value.trim());
 
-  // 이미지 저장
   const folder = zip.folder('wrong_images');
   for (const it of wrongItems){
     const base64 = it.dataUrl.split(',')[1];

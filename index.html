@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Loop - 실시간 자동 채점 & 오답노트 (v0.9.0)</title>
+<title>Loop - 실시간 자동 채점 & 오답노트 (v0.9.1)</title>
 <style>
   :root{
     --bg:#fffef7; --card:#fff; --ink:#1b1b1b; --muted:#666;
@@ -30,7 +30,6 @@
   video{width:100%;height:auto;display:block}
   .overlay{position:absolute;inset:0;pointer-events:none}
 
-  /* 가이드 박스: 항상 보임 */
   .box{
     position:absolute;border:2px solid var(--blue);border-radius:10px;
     background:rgba(0,163,255,0.06);
@@ -38,11 +37,7 @@
     color:#fff;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.6);
     pointer-events:auto; touch-action:none;
   }
-  .box.locked{
-    border-style:dashed;
-    opacity:0.92;
-    pointer-events:none; /* 잠금 = 터치 불가 */
-  }
+  .box.locked{border-style:dashed;opacity:0.92;pointer-events:none;}
   .box .label{
     position:absolute;top:-10px;left:-10px;background:var(--blue);color:#fff;
     border-radius:999px;padding:2px 8px;font-size:12px;border:1px solid rgba(255,255,255,.5)
@@ -66,14 +61,12 @@
 </head>
 
 <body>
-  <h1>Loop - 실시간 자동 채점 & 오답노트 <span class="pill">v0.9.0</span></h1>
-  <p class="sub">
-    사용법: 박스를 ①②③④⑤ 줄에 맞춘 뒤, 실시간 시작을 누르면 됩니다.
-  </p>
+  <h1>Loop - 실시간 자동 채점 & 오답노트 <span class="pill">v0.9.1</span></h1>
+  <p class="sub">박스를 ①②③④⑤ 줄에 맞추고 “실시간 시작”을 누르세요.</p>
 
   <div class="card">
     <h2 style="margin:0 0 8px">① 정답표</h2>
-    <p class="muted">형식: <code>1:3 2:5 3:1</code> (뜻: 1번 정답=3)</p>
+    <p class="muted">형식: <code>1:3 2:5 3:1</code></p>
     <textarea id="answerKey" placeholder="예) 1:3 2:5 3:1 4:2 5:4"></textarea>
     <div class="row" style="margin-top:6px">
       <button id="applyKey">정답표 적용</button>
@@ -109,7 +102,7 @@
     </div>
 
     <div class="muted" style="margin-top:8px;line-height:1.5">
-      팁: 박스는 ①②③④⑤가 있는 “한 줄”만 최대한 딱 맞게 잡아주세요. (넓게 잡으면 흔들립니다)
+      팁: 박스는 “①②③④⑤ 한 줄”만 최대한 좁게 잡아주세요.
     </div>
   </div>
 
@@ -140,7 +133,7 @@
 
 <script>
 /* ===== 유틸 ===== */
-const VERSION = 'v0.9.0';
+const VERSION = 'v0.9.1';
 const $ = s => document.querySelector(s);
 const statusEl = $('#status');
 function setStatus(text, live=false){
@@ -180,7 +173,7 @@ function parseAnswerKey(text){
   }
   return map;
 }
-const savedKey = localStorage.getItem('loop_key_v090');
+const savedKey = localStorage.getItem('loop_key_v091');
 if (savedKey) answerKeyEl.value = savedKey;
 
 applyKeyBtn.onclick = ()=>{
@@ -189,12 +182,12 @@ applyKeyBtn.onclick = ()=>{
   if (!answerKeyMap.size) alert('정답표 예시: 1:3 2:5');
 };
 saveKeyBtn.onclick = ()=>{
-  localStorage.setItem('loop_key_v090', answerKeyEl.value.trim());
+  localStorage.setItem('loop_key_v091', answerKeyEl.value.trim());
   alert('저장했어요.');
 };
 clearKeyBtn.onclick = ()=>{
   answerKeyEl.value = '';
-  localStorage.removeItem('loop_key_v090');
+  localStorage.removeItem('loop_key_v091');
   answerKeyMap = new Map();
   keyStatus.textContent = '';
 };
@@ -217,16 +210,15 @@ $('#nextQ').onclick = ()=> qNumEl.value = (parseInt(qNumEl.value,10)||1) + 1;
 let stream = null;
 let editMode = true;
 
-// 박스 비율좌표 (1개)
 let choiceBox = { x:0.08, y:0.65, w:0.84, h:0.22 };
 (function loadBox(){
-  const saved = localStorage.getItem('loop_box_v090');
+  const saved = localStorage.getItem('loop_box_v091');
   if (saved){
     try{ choiceBox = JSON.parse(saved); }catch{}
   }
 })();
 function saveBox(){
-  localStorage.setItem('loop_box_v090', JSON.stringify(choiceBox));
+  localStorage.setItem('loop_box_v091', JSON.stringify(choiceBox));
 }
 
 function renderBox(){
@@ -329,7 +321,8 @@ startCamBtn.onclick = async ()=>{
   }
 };
 
-/* ===== 핵심: 5칸 중 “가장 까만 칸” 찾기 ===== */
+/* ===== 핵심: “동그라미 위치 5개”를 자동으로 찾고, 가장 까만 위치를 답으로 ===== */
+
 function getFrameCanvas(){
   const vw = cam.videoWidth || 640;
   const vh = cam.videoHeight || 480;
@@ -339,19 +332,18 @@ function getFrameCanvas(){
   return c;
 }
 
-// 각 칸의 “검은 비율(0~1)” 계산
-function computeDarkRatios(frame){
+// ROI 추출 + 축소 + 흑백 임계값
+function getRoiBinary(frame){
   const vw = frame.width, vh = frame.height;
   const bx = Math.round(choiceBox.x * vw);
   const by = Math.round(choiceBox.y * vh);
   const bw = Math.round(choiceBox.w * vw);
   const bh = Math.round(choiceBox.h * vh);
 
-  // 속도 위해 축소
-  const targetW = 720;
-  const scale = targetW / Math.max(1, bw);
-  const tw = Math.max(320, Math.round(bw * Math.min(1, scale)));
-  const th = Math.max(140, Math.round(bh * Math.min(1, scale)));
+  const targetW = 760;
+  const s = Math.min(1, targetW / Math.max(1, bw));
+  const tw = Math.max(360, Math.round(bw * s));
+  const th = Math.max(140, Math.round(bh * s));
 
   const cut = document.createElement('canvas');
   cut.width = tw; cut.height = th;
@@ -361,7 +353,7 @@ function computeDarkRatios(frame){
   const img = ctx.getImageData(0,0,tw,th);
   const d = img.data;
 
-  // 전체 평균 밝기로 임계값 자동 결정
+  // 전체 평균 밝기로 임계값 잡기
   let sum = 0;
   const N = tw * th;
   for (let i=0;i<d.length;i+=4){
@@ -369,63 +361,131 @@ function computeDarkRatios(frame){
     sum += lum;
   }
   const mean = sum / N;
-  const thr = clamp(mean - 35, 60, 190); // 이보다 어두우면 “검정”으로 본다
+  const thr = clamp(mean - 30, 55, 200);
 
-  const segW = tw / 5;
+  // binary: 검정=1, 흰색=0
+  const bin = new Uint8Array(tw * th);
+  for (let y=0; y<th; y++){
+    for (let x=0; x<tw; x++){
+      const idx = (y*tw + x) * 4;
+      const lum = d[idx]*0.299 + d[idx+1]*0.587 + d[idx+2]*0.114;
+      bin[y*tw + x] = (lum < thr) ? 1 : 0;
+    }
+  }
 
-  // 위아래 여백 줄이고 “가운데 영역”만 봄 (잡음 감소)
+  return { tw, th, bin };
+}
+
+// x방향으로 “검정이 얼마나 쌓였는지” (동그라미 위치 찾기)
+function columnDarkProfile(tw, th, bin){
+  // 위아래 여백을 좀 버림
+  const y0 = Math.round(th * 0.15);
+  const y1 = Math.round(th * 0.85);
+
+  const prof = new Float32Array(tw);
+  for (let x=0; x<tw; x++){
+    let acc = 0;
+    for (let y=y0; y<y1; y++){
+      acc += bin[y*tw + x];
+    }
+    prof[x] = acc; // 클수록 그 x열에 검정이 많음
+  }
+  return prof;
+}
+
+// 간단한 이동평균으로 부드럽게
+function smooth(arr, win){
+  const out = new Float32Array(arr.length);
+  const half = Math.floor(win/2);
+  for (let i=0;i<arr.length;i++){
+    let s=0,c=0;
+    for (let k=i-half; k<=i+half; k++){
+      if (k<0 || k>=arr.length) continue;
+      s += arr[k]; c++;
+    }
+    out[i] = s / Math.max(1,c);
+  }
+  return out;
+}
+
+// 5개의 “봉우리(피크)” 찾기: 동그라미가 있는 x대략 위치
+function pick5Peaks(profile){
+  const p = smooth(profile, 21);
+  const maxv = Math.max(...p);
+  if (maxv < 8) return null; // 거의 아무것도 없으면 실패(박스가 엉뚱한 곳)
+
+  const peaks = [];
+  const minDist = Math.floor(p.length / 8); // 너무 가까운 피크는 하나로 취급
+
+  // 가장 큰 봉우리부터 5개 뽑기
+  const idxs = Array.from({length:p.length}, (_,i)=>i);
+  idxs.sort((a,b)=>p[b]-p[a]);
+
+  for (const i of idxs){
+    if (p[i] < maxv * 0.35) break; // 너무 작은 건 무시
+    if (peaks.some(j=>Math.abs(j-i) < minDist)) continue;
+    peaks.push(i);
+    if (peaks.length === 5) break;
+  }
+
+  if (peaks.length < 5) return null;
+  peaks.sort((a,b)=>a-b);
+  return peaks;
+}
+
+// 각 피크 주변 “검정 비율” 계산 → 가장 까만 피크가 답
+function scoreAroundPeaks(tw, th, bin, peaks){
   const y0 = Math.round(th * 0.18);
   const y1 = Math.round(th * 0.82);
 
-  const ratios = [];
-  for (let s=0;s<5;s++){
-    const sx0 = Math.round(s * segW);
-    const sx1 = Math.round((s+1) * segW);
+  const scores = []; // 5개
+  const window = Math.floor(tw * 0.08); // 피크 좌우 범위
 
-    const w = Math.max(10, sx1 - sx0);
-    const h = Math.max(10, y1 - y0);
-
-    const cx0 = sx0 + Math.round(w * 0.22);
-    const cx1 = sx0 + Math.round(w * 0.78);
-    const cy0 = y0  + Math.round(h * 0.18);
-    const cy1 = y0  + Math.round(h * 0.82);
+  for (const cx of peaks){
+    const x0 = clamp(cx - window, 0, tw-1);
+    const x1 = clamp(cx + window, 0, tw-1);
 
     let dark=0, tot=0;
-    for (let y=cy0; y<cy1; y++){
-      for (let x=cx0; x<cx1; x++){
-        const idx = (y*tw + x) * 4;
-        const lum = d[idx]*0.299 + d[idx+1]*0.587 + d[idx+2]*0.114;
-        if (lum < thr) dark++;
+    for (let y=y0; y<y1; y++){
+      for (let x=x0; x<=x1; x++){
+        const v = bin[y*tw + x];
+        dark += v;
         tot++;
       }
     }
-    ratios.push(dark / Math.max(1, tot));
+    scores.push(dark / Math.max(1, tot));
   }
-  return ratios;
+  return scores;
 }
 
-// 가장 까만 칸이 “확실히” 까매야 선택으로 인정
-function pickChoiceFromRatios(ratios){
+function pickChoiceByAutoCircles(frame){
+  const {tw, th, bin} = getRoiBinary(frame);
+  const prof = columnDarkProfile(tw, th, bin);
+  const peaks = pick5Peaks(prof);
+
+  if (!peaks) return { choice:null, debug:'동그라미 위치를 못 찾음(박스가 너무 넓거나 위치가 틀림)' };
+
+  const scores = scoreAroundPeaks(tw, th, bin, peaks);
+
+  // 가장 까만 곳 찾기
   let best = 0;
-  for (let i=1;i<5;i++) if (ratios[i] > ratios[best]) best = i;
+  for (let i=1;i<5;i++) if (scores[i] > scores[best]) best = i;
 
-  const sorted = [...ratios].sort((a,b)=>b-a);
-  const top = sorted[0];
-  const second = sorted[1];
+  // “확실히” 까매야 선택으로 인정
+  const sorted = [...scores].sort((a,b)=>b-a);
+  const top = sorted[0], second = sorted[1];
 
-  // 조건 1) top 자체가 어느 정도는 까매야 함
-  if (top < 0.20) return null;
+  if (top < 0.12) return { choice:null, debug:'전체가 너무 밝음(체크가 없거나 카메라가 흐림)' };
+  if (top < second + 0.05) return { choice:null, debug:'차이가 작음(흔들림/초점/박스넓음)' };
 
-  // 조건 2) 1등이 2등보다 확실히 커야 함
-  if (top < second + 0.07) return null;
-
-  return best + 1; // 1~5
+  // best는 왼쪽부터 0~4, 즉 1~5
+  return { choice: best + 1, debug: `점수 ${scores.map(v=>v.toFixed(2)).join(' ')}` };
 }
 
-/* ===== 라이브 안정화(흔들림 방지) ===== */
+/* ===== 라이브 안정화 ===== */
 let liveOn=false, busy=false;
 let history=[];
-const HISTORY_N = 4;   // 같은 값 4번 연속이면 확정
+const HISTORY_N = 4;
 const TICK_MS = 320;
 
 function stableUpdate(choice){
@@ -453,7 +513,7 @@ $('#clearResults').onclick = ()=>{
 const exportZipBtn = $('#exportZip');
 $('#clearWrong').onclick = ()=>{
   wrongItems = [];
-  localStorage.removeItem('loop_wrong_v090');
+  localStorage.removeItem('loop_wrong_v091');
   refreshWrongUI();
 };
 
@@ -480,14 +540,14 @@ function refreshWrongUI(){
   wrongStatus.textContent = wrongItems.length ? `오답 ${wrongItems.length}개 저장됨` : '';
 }
 (function loadWrong(){
-  const saved = localStorage.getItem('loop_wrong_v090');
+  const saved = localStorage.getItem('loop_wrong_v091');
   if (saved){
     try{ wrongItems = JSON.parse(saved) || []; }catch{}
   }
   refreshWrongUI();
 })();
 function saveWrong(){
-  try{ localStorage.setItem('loop_wrong_v090', JSON.stringify(wrongItems)); }catch{}
+  try{ localStorage.setItem('loop_wrong_v091', JSON.stringify(wrongItems)); }catch{}
 }
 
 function renderResult(q, correct, my, ok, frame){
@@ -555,16 +615,16 @@ async function tick(){
     const correct = answerKeyMap.get(q) || null;
 
     const frame = getFrameCanvas();
-    const ratios = computeDarkRatios(frame);
-    const raw = pickChoiceFromRatios(ratios);
-    const final = stableUpdate(raw);
+    const {choice, debug} = pickChoiceByAutoCircles(frame);
+
+    const final = stableUpdate(choice);
 
     if (final){
-      liveInfo.textContent = `내 답 확정: ${final}`;
-    } else if (raw){
-      liveInfo.textContent = `감지 중: ${raw}`;
+      liveInfo.textContent = `내 답 확정: ${final}  (${debug})`;
+    } else if (choice){
+      liveInfo.textContent = `감지 중: ${choice}  (${debug})`;
     } else {
-      liveInfo.textContent = `감지 중...`;
+      liveInfo.textContent = `감지 중... (${debug})`;
     }
 
     if (final && correct){
@@ -581,6 +641,7 @@ async function tick(){
   }catch(e){
     console.error(e);
     setStatus('에러', true);
+    liveInfo.textContent = '감지 실패(박스/초점/조명 확인)';
   }finally{
     busy = false;
     setTimeout(tick, TICK_MS);

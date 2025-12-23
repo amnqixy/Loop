@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Loop - 실시간 자동 채점 & 오답노트 (v0.9.2)</title>
+<title>Loop - 실시간 자동 채점 & 오답노트 (v0.9.3)</title>
 <style>
   :root{--bg:#fffef7;--card:#fff;--ink:#1b1b1b;--muted:#666;--line:#e8e2c8;--good:#0a7d2a;--bad:#b00020;--blue:#00a3ff;}
   *{box-sizing:border-box}
@@ -23,9 +23,24 @@
   .bad{color:var(--bad);font-weight:800}
   code{background:#fffbda;border:1px solid var(--line);padding:1px 6px;border-radius:8px}
 
-  .camWrap{position:relative;width:100%;max-height:52vh;overflow:hidden;border-radius:12px;border:1px solid var(--line);background:#000}
-  video{width:100%;height:auto;display:block}
-  .overlay{position:absolute;inset:0}
+  /* 핵심: video/overlay가 "같은 좌표계"를 쓰도록 고정 */
+  .camWrap{
+    position:relative;
+    width:100%;
+    height:52vh;              /* iPad에서도 좌표계가 안정적 */
+    border-radius:12px;
+    border:1px solid var(--line);
+    background:#000;
+    overflow:hidden;
+  }
+  video{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    object-fit:cover;         /* 보이는 화면과 동일하게 잘림 */
+    display:block;
+  }
+  .overlay{position:absolute; inset:0; pointer-events:auto}
+
   .box{
     position:absolute;border:2px solid var(--blue);border-radius:10px;
     background:rgba(0,163,255,0.06);
@@ -61,11 +76,8 @@
 </head>
 
 <body>
-  <h1>Loop - 실시간 자동 채점 & 오답노트 <span class="pill">v0.9.2</span></h1>
-  <p class="sub">
-    한 번만 “원 위치 설정”으로 ①~⑤를 차례대로 눌러서 위치를 저장하면,
-    이후에는 검은 사인펜 체크(가장 까만 곳)를 자동으로 답으로 잡습니다.
-  </p>
+  <h1>Loop - 실시간 자동 채점 & 오답노트 <span class="pill">v0.9.3</span></h1>
+  <p class="sub">처음 한 번만 “원 위치 설정(①→⑤)”을 하고, 이후에는 실시간 시작만 누르면 됩니다.</p>
 
   <div class="card">
     <h2 style="margin:0 0 8px">① 정답표</h2>
@@ -106,7 +118,7 @@
     </div>
 
     <div class="muted" style="margin-top:8px;line-height:1.5">
-      필수: 박스는 ①②③④⑤가 있는 “한 줄”만 최대한 딱 맞게 잡아주세요.
+      박스는 ①②③④⑤ “한 줄”만 최대한 딱 맞게 잡아주세요.
     </div>
   </div>
 
@@ -136,222 +148,195 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
 <script>
-/* ===== 유틸 ===== */
-const VERSION = 'v0.9.2';
-const $ = s => document.querySelector(s);
-const statusEl = $('#status');
+const VERSION='v0.9.3';
+const $=s=>document.querySelector(s);
+const statusEl=$('#status');
 function setStatus(text, live=false){
-  statusEl.textContent = text;
+  statusEl.textContent=text;
   statusEl.classList.toggle('live', !!live);
 }
 function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
 
-/* ===== 정답표 ===== */
-const answerKeyEl = $('#answerKey');
-const applyKeyBtn = $('#applyKey');
-const saveKeyBtn = $('#saveKey');
-const clearKeyBtn = $('#clearKey');
-const keyStatus = $('#keyStatus');
-let answerKeyMap = new Map();
+/* 정답표 */
+const answerKeyEl=$('#answerKey');
+const applyKeyBtn=$('#applyKey');
+const saveKeyBtn=$('#saveKey');
+const clearKeyBtn=$('#clearKey');
+const keyStatus=$('#keyStatus');
+let answerKeyMap=new Map();
 
 function normalizeChoice(x){
-  if (!x) return null;
-  const t = String(x).trim().toUpperCase();
-  if (/^[1-5]$/.test(t)) return parseInt(t,10);
-  if (t==='A') return 1;
-  if (t==='B') return 2;
-  if (t==='C') return 3;
-  if (t==='D') return 4;
-  if (t==='E') return 5;
+  if(!x) return null;
+  const t=String(x).trim().toUpperCase();
+  if(/^[1-5]$/.test(t)) return parseInt(t,10);
+  if(t==='A') return 1; if(t==='B') return 2; if(t==='C') return 3; if(t==='D') return 4; if(t==='E') return 5;
   return null;
 }
 function parseAnswerKey(text){
-  const map = new Map();
-  const tokens = text.replace(/\n/g,' ').trim().split(/\s+/);
-  for (const tok of tokens){
-    const m = tok.match(/^(\d+)\s*[:\-\.]?\s*([A-E1-5])$/i);
-    if (!m) continue;
-    const q = parseInt(m[1],10);
-    const choice = normalizeChoice(m[2]);
-    if (choice) map.set(q, choice);
+  const map=new Map();
+  const tokens=text.replace(/\n/g,' ').trim().split(/\s+/);
+  for(const tok of tokens){
+    const m=tok.match(/^(\d+)\s*[:\-\.]?\s*([A-E1-5])$/i);
+    if(!m) continue;
+    const q=parseInt(m[1],10);
+    const choice=normalizeChoice(m[2]);
+    if(choice) map.set(q, choice);
   }
   return map;
 }
-const savedKey = localStorage.getItem('loop_key_v092');
-if (savedKey) answerKeyEl.value = savedKey;
+const savedKey=localStorage.getItem('loop_key_v093');
+if(savedKey) answerKeyEl.value=savedKey;
 
-applyKeyBtn.onclick = ()=>{
-  answerKeyMap = parseAnswerKey(answerKeyEl.value);
-  keyStatus.textContent = `적용됨: ${answerKeyMap.size}개`;
-  if (!answerKeyMap.size) alert('정답표 예시: 1:3 2:5');
+applyKeyBtn.onclick=()=>{
+  answerKeyMap=parseAnswerKey(answerKeyEl.value);
+  keyStatus.textContent=`적용됨: ${answerKeyMap.size}개`;
+  if(!answerKeyMap.size) alert('정답표 예시: 1:3 2:5');
 };
-saveKeyBtn.onclick = ()=>{
-  localStorage.setItem('loop_key_v092', answerKeyEl.value.trim());
+saveKeyBtn.onclick=()=>{
+  localStorage.setItem('loop_key_v093', answerKeyEl.value.trim());
   alert('저장했어요.');
 };
-clearKeyBtn.onclick = ()=>{
-  answerKeyEl.value = '';
-  localStorage.removeItem('loop_key_v092');
-  answerKeyMap = new Map();
-  keyStatus.textContent = '';
+clearKeyBtn.onclick=()=>{
+  answerKeyEl.value='';
+  localStorage.removeItem('loop_key_v093');
+  answerKeyMap=new Map();
+  keyStatus.textContent='';
 };
 
-/* ===== 카메라/박스 ===== */
-const cam = $('#cam');
-const overlay = $('#overlay');
-const startCamBtn = $('#startCam');
-const toggleEditBtn = $('#toggleEdit');
-const saveBoxBtn = $('#saveBox');
-const resetBoxBtn = $('#resetBox');
-const calibrateBtn = $('#calibrate');
-const startLiveBtn = $('#startLive');
-const stopLiveBtn = $('#stopLive');
-const liveInfo = $('#liveInfo');
+/* 카메라/박스 */
+const cam=$('#cam');
+const overlay=$('#overlay');
+const startCamBtn=$('#startCam');
+const toggleEditBtn=$('#toggleEdit');
+const saveBoxBtn=$('#saveBox');
+const resetBoxBtn=$('#resetBox');
+const calibrateBtn=$('#calibrate');
+const startLiveBtn=$('#startLive');
+const stopLiveBtn=$('#stopLive');
+const liveInfo=$('#liveInfo');
 
-const qNumEl = $('#qNum');
-$('#prevQ').onclick = ()=> qNumEl.value = Math.max(1, (parseInt(qNumEl.value,10)||1) - 1);
-$('#nextQ').onclick = ()=> qNumEl.value = (parseInt(qNumEl.value,10)||1) + 1;
+const qNumEl=$('#qNum');
+$('#prevQ').onclick=()=> qNumEl.value=Math.max(1,(parseInt(qNumEl.value,10)||1)-1);
+$('#nextQ').onclick=()=> qNumEl.value=(parseInt(qNumEl.value,10)||1)+1;
 
-let stream = null;
-let editMode = true;
+let stream=null;
+let editMode=true;
 
-// 1개 박스
-let choiceBox = { x:0.08, y:0.65, w:0.84, h:0.22 };
+let choiceBox={x:0.08,y:0.65,w:0.84,h:0.22};
 (function loadBox(){
-  const saved = localStorage.getItem('loop_box_v092');
-  if (saved){
-    try{ choiceBox = JSON.parse(saved); }catch{}
-  }
+  const s=localStorage.getItem('loop_box_v093');
+  if(s){ try{ choiceBox=JSON.parse(s);}catch{} }
 })();
-function saveBox(){
-  localStorage.setItem('loop_box_v092', JSON.stringify(choiceBox));
-}
+function saveBox(){ localStorage.setItem('loop_box_v093', JSON.stringify(choiceBox)); }
 
-// ①~⑤의 “x 위치” (박스 안에서 0~1)
-let circleXs = null;
+/* ①~⑤ x 위치(박스 내부 0~1) */
+let circleXs=null;
 (function loadCircles(){
-  const s = localStorage.getItem('loop_circles_v092');
-  if (s){
-    try{ circleXs = JSON.parse(s); }catch{}
-  }
+  const s=localStorage.getItem('loop_circles_v093');
+  if(s){ try{ circleXs=JSON.parse(s);}catch{} }
 })();
-function saveCircles(){
-  localStorage.setItem('loop_circles_v092', JSON.stringify(circleXs));
-}
+function saveCircles(){ localStorage.setItem('loop_circles_v093', JSON.stringify(circleXs)); }
 
 function renderBoxAndMarkers(){
-  overlay.innerHTML = '';
-  const wrap = overlay.getBoundingClientRect();
+  overlay.innerHTML='';
+  const wrap=overlay.getBoundingClientRect();
 
-  const el = document.createElement('div');
-  el.className = 'box' + (editMode ? '' : ' locked');
+  const el=document.createElement('div');
+  el.className='box'+(editMode?'':' locked');
 
-  const label = document.createElement('div');
-  label.className = 'label';
-  label.textContent = editMode ? '편집: 드래그/크기조절' : '잠금';
+  const label=document.createElement('div');
+  label.className='label';
+  label.textContent=editMode?'편집: 드래그/크기조절':'잠금';
 
-  const handle = document.createElement('div');
-  handle.className = 'handle';
+  const handle=document.createElement('div');
+  handle.className='handle';
 
   el.appendChild(label);
   el.appendChild(handle);
   overlay.appendChild(el);
 
   function applyPos(){
-    const W = wrap.width, H = wrap.height;
-    el.style.left = (choiceBox.x * W) + 'px';
-    el.style.top  = (choiceBox.y * H) + 'px';
-    el.style.width  = (choiceBox.w * W) + 'px';
-    el.style.height = (choiceBox.h * H) + 'px';
+    const W=wrap.width, H=wrap.height;
+    el.style.left=(choiceBox.x*W)+'px';
+    el.style.top =(choiceBox.y*H)+'px';
+    el.style.width =(choiceBox.w*W)+'px';
+    el.style.height=(choiceBox.h*H)+'px';
 
-    // 마커 표시(저장된 위치가 있으면)
-    if (circleXs && Array.isArray(circleXs) && circleXs.length===5){
-      for (let i=0;i<5;i++){
-        const m = document.createElement('div');
-        m.className = 'marker';
-        const mx = (choiceBox.x + choiceBox.w * circleXs[i]) * W;
-        const my = (choiceBox.y + choiceBox.h * 0.5) * H;
-        m.style.left = mx+'px';
-        m.style.top = my+'px';
+    if(circleXs && Array.isArray(circleXs) && circleXs.length===5){
+      for(let i=0;i<5;i++){
+        const m=document.createElement('div');
+        m.className='marker';
+        const mx=(choiceBox.x + choiceBox.w*circleXs[i]) * W;
+        const my=(choiceBox.y + choiceBox.h*0.5) * H;
+        m.style.left=mx+'px';
+        m.style.top =my+'px';
         overlay.appendChild(m);
       }
     }
   }
   applyPos();
 
-  if (!editMode){
+  if(!editMode){
     window.addEventListener('resize', applyPos);
     return;
   }
 
   let dragging=false, resizing=false;
-  let startX=0, startY=0, startBox=null;
+  let startX=0,startY=0,startBox=null;
 
-  el.addEventListener('pointerdown', (e)=>{
+  el.addEventListener('pointerdown',(e)=>{
     e.preventDefault();
-    const rect = el.getBoundingClientRect();
-    const isHandle = (e.clientX > rect.right-30 && e.clientY > rect.bottom-30);
-    resizing = isHandle;
-    dragging = !isHandle;
-    startX = e.clientX; startY = e.clientY;
-    startBox = {...choiceBox};
+    const rect=el.getBoundingClientRect();
+    const isHandle=(e.clientX>rect.right-30 && e.clientY>rect.bottom-30);
+    resizing=isHandle; dragging=!isHandle;
+    startX=e.clientX; startY=e.clientY;
+    startBox={...choiceBox};
     el.setPointerCapture(e.pointerId);
   });
 
-  el.addEventListener('pointermove', (e)=>{
-    if (!dragging && !resizing) return;
-    const W = wrap.width, H = wrap.height;
-    const dx = (e.clientX - startX) / W;
-    const dy = (e.clientY - startY) / H;
+  el.addEventListener('pointermove',(e)=>{
+    if(!dragging && !resizing) return;
+    const W=wrap.width,H=wrap.height;
+    const dx=(e.clientX-startX)/W;
+    const dy=(e.clientY-startY)/H;
 
-    if (dragging){
-      choiceBox.x = clamp(startBox.x + dx, 0, 1);
-      choiceBox.y = clamp(startBox.y + dy, 0, 1);
-    } else {
-      choiceBox.w = clamp(startBox.w + dx, 0.10, 0.98);
-      choiceBox.h = clamp(startBox.h + dy, 0.06, 0.60);
+    if(dragging){
+      choiceBox.x=clamp(startBox.x+dx,0,1);
+      choiceBox.y=clamp(startBox.y+dy,0,1);
+    }else{
+      choiceBox.w=clamp(startBox.w+dx,0.10,0.98);
+      choiceBox.h=clamp(startBox.h+dy,0.06,0.60);
     }
     applyPos();
   });
 
-  el.addEventListener('pointerup', ()=>{
-    dragging=false; resizing=false;
-  });
-
+  el.addEventListener('pointerup',()=>{ dragging=false; resizing=false; });
   window.addEventListener('resize', applyPos);
 }
 renderBoxAndMarkers();
 
-toggleEditBtn.onclick = ()=>{
-  editMode = !editMode;
-  toggleEditBtn.textContent = '편집 모드: ' + (editMode ? 'ON' : 'OFF');
+toggleEditBtn.onclick=()=>{
+  editMode=!editMode;
+  toggleEditBtn.textContent='편집 모드: '+(editMode?'ON':'OFF');
   renderBoxAndMarkers();
 };
-saveBoxBtn.onclick = ()=>{ saveBox(); alert('박스 저장 완료'); };
-resetBoxBtn.onclick = ()=>{
-  choiceBox = { x:0.08, y:0.65, w:0.84, h:0.22 };
-  renderBoxAndMarkers();
-};
+saveBoxBtn.onclick=()=>{ saveBox(); alert('박스 저장 완료'); };
+resetBoxBtn.onclick=()=>{ choiceBox={x:0.08,y:0.65,w:0.84,h:0.22}; renderBoxAndMarkers(); };
 
-startCamBtn.onclick = async ()=>{
+/* 카메라 시작 */
+startCamBtn.onclick=async ()=>{
   try{
-    stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ideal:'environment'} },
-      audio:false
-    });
-    cam.srcObject = stream;
+    stream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:'environment'} }, audio:false });
+    cam.srcObject=stream;
 
-    // iOS에서 이거 안 기다리면 분석이 “빈 화면”이 될 때가 많음
-    await new Promise(res=>{
-      cam.onloadedmetadata = ()=>res();
-    });
+    await new Promise(res=>{ cam.onloadedmetadata=()=>res(); });
     await cam.play();
 
-    toggleEditBtn.disabled = false;
-    saveBoxBtn.disabled = false;
-    resetBoxBtn.disabled = false;
-    calibrateBtn.disabled = false;
-    startLiveBtn.disabled = false;
+    toggleEditBtn.disabled=false;
+    saveBoxBtn.disabled=false;
+    resetBoxBtn.disabled=false;
+    calibrateBtn.disabled=false;
+    startLiveBtn.disabled=false;
 
     setStatus('카메라 준비됨');
     renderBoxAndMarkers();
@@ -361,347 +346,344 @@ startCamBtn.onclick = async ()=>{
   }
 };
 
-/* ===== 원 위치 설정(①→⑤ 탭 5번) ===== */
-let calibrating = false;
-let calStep = 0;
+/* ===== 핵심 수정: “화면에 보이는 그대로(cover 크롭 포함)” 캔버스에 그리기 ===== */
+function getDisplayFrameCanvas(){
+  // 화면(=camWrap) 기준 좌표계를 그대로 캔버스로 만든다
+  const cw = cam.clientWidth;
+  const ch = cam.clientHeight;
+  const vw = cam.videoWidth;
+  const vh = cam.videoHeight;
 
-calibrateBtn.onclick = ()=>{
-  if (!cam.srcObject) { alert('먼저 카메라를 켜세요.'); return; }
-  calibrating = true;
-  calStep = 0;
-  circleXs = [];
+  if(!cw || !ch || !vw || !vh) return null;
+
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const canvas=document.createElement('canvas');
+  canvas.width = Math.round(cw * dpr);
+  canvas.height= Math.round(ch * dpr);
+
+  const ctx=canvas.getContext('2d');
+  ctx.imageSmoothingEnabled=true;
+
+  // object-fit: cover와 동일한 크롭 계산
+  const videoAR = vw / vh;
+  const boxAR = cw / ch;
+
+  let sx=0, sy=0, sw=vw, sh=vh;
+
+  if(videoAR > boxAR){
+    // 비디오가 더 넓음 -> 좌우 크롭
+    sw = vh * boxAR;
+    sx = (vw - sw) / 2;
+  }else{
+    // 비디오가 더 높음 -> 위아래 크롭
+    sh = vw / boxAR;
+    sy = (vh - sh) / 2;
+  }
+
+  ctx.drawImage(cam, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+/* ===== 원 위치 설정(①→⑤) ===== */
+let calibrating=false;
+let calStep=0;
+
+calibrateBtn.onclick=()=>{
+  if(!cam.srcObject){ alert('먼저 카메라를 켜세요.'); return; }
+  calibrating=true;
+  calStep=0;
+  circleXs=[];
   renderBoxAndMarkers();
   setStatus('원 위치 설정 중');
-  liveInfo.textContent = '①을 눌러주세요';
+  liveInfo.textContent='①을 눌러주세요';
 };
 
-// overlay에서 탭 좌표 받기
-overlay.addEventListener('pointerdown', (e)=>{
-  if (!calibrating) return;
+overlay.addEventListener('pointerdown',(e)=>{
+  if(!calibrating) return;
 
-  const wrap = overlay.getBoundingClientRect();
-  const x = (e.clientX - wrap.left) / wrap.width;   // 화면 전체 기준 0~1
-  const y = (e.clientY - wrap.top) / wrap.height;
+  const wrap=overlay.getBoundingClientRect();
+  const x=(e.clientX-wrap.left)/wrap.width;
+  const y=(e.clientY-wrap.top)/wrap.height;
 
-  // 박스 내부만 허용
-  const bx0 = choiceBox.x;
-  const by0 = choiceBox.y;
-  const bx1 = choiceBox.x + choiceBox.w;
-  const by1 = choiceBox.y + choiceBox.h;
+  const bx0=choiceBox.x, by0=choiceBox.y;
+  const bx1=choiceBox.x+choiceBox.w, by1=choiceBox.y+choiceBox.h;
 
-  if (x < bx0 || x > bx1 || y < by0 || y > by1){
-    liveInfo.textContent = '박스 안에서 눌러주세요';
+  if(x<bx0 || x>bx1 || y<by0 || y>by1){
+    liveInfo.textContent='박스 안에서 눌러주세요';
     return;
   }
 
-  // 박스 안 x로 변환(0~1)
-  const rx = (x - bx0) / (bx1 - bx0);
-  circleXs.push(clamp(rx, 0, 1));
+  const rx=(x-bx0)/(bx1-bx0);
+  circleXs.push(clamp(rx,0,1));
 
   calStep++;
-  if (calStep < 5){
+  if(calStep<5){
     liveInfo.textContent = `${['②','③','④','⑤'][calStep-1]}을 눌러주세요`;
-  } else {
-    // 정렬해서 ①~⑤ 순서로 고정
+  }else{
     circleXs.sort((a,b)=>a-b);
     saveCircles();
-    calibrating = false;
+    calibrating=false;
     setStatus('원 위치 설정 완료');
-    liveInfo.textContent = '완료';
+    liveInfo.textContent='완료';
     renderBoxAndMarkers();
   }
 });
 
-/* ===== 분석(검은 사인펜 체크: 가장 까만 곳) ===== */
-function getFrameCanvas(){
-  if (cam.readyState < 2 || !cam.videoWidth || !cam.videoHeight) return null;
-  const c = document.createElement('canvas');
-  c.width = cam.videoWidth;
-  c.height = cam.videoHeight;
-  c.getContext('2d').drawImage(cam, 0, 0, c.width, c.height);
-  return c;
-}
-
+/* ===== 검정 비율 계산 ===== */
 function computeDarkRatioAt(frame, rx){
-  const vw = frame.width, vh = frame.height;
-  const bx = Math.round(choiceBox.x * vw);
-  const by = Math.round(choiceBox.y * vh);
-  const bw = Math.round(choiceBox.w * vw);
-  const bh = Math.round(choiceBox.h * vh);
+  const W=frame.width, H=frame.height;
 
-  // ROI를 조금 축소해서 성능 확보
-  const targetW = 820;
-  const s = Math.min(1, targetW / Math.max(1, bw));
-  const tw = Math.max(320, Math.round(bw * s));
-  const th = Math.max(140, Math.round(bh * s));
+  const bx=Math.round(choiceBox.x*W);
+  const by=Math.round(choiceBox.y*H);
+  const bw=Math.round(choiceBox.w*W);
+  const bh=Math.round(choiceBox.h*H);
 
-  const cut = document.createElement('canvas');
-  cut.width = tw; cut.height = th;
-  const ctx = cut.getContext('2d');
-  ctx.drawImage(frame, bx, by, bw, bh, 0, 0, tw, th);
+  // ROI만 따서 계산 (속도 + 정확도)
+  const targetW=800;
+  const s=Math.min(1, targetW/Math.max(1,bw));
+  const tw=Math.max(320, Math.round(bw*s));
+  const th=Math.max(140, Math.round(bh*s));
 
-  const img = ctx.getImageData(0,0,tw,th);
-  const d = img.data;
+  const cut=document.createElement('canvas');
+  cut.width=tw; cut.height=th;
+  const ctx=cut.getContext('2d');
+  ctx.drawImage(frame, bx, by, bw, bh, 0,0,tw,th);
 
-  // 평균 밝기로 임계값 자동
+  const img=ctx.getImageData(0,0,tw,th);
+  const d=img.data;
+
+  // 평균 밝기 기반 임계값
   let sum=0;
   const N=tw*th;
-  for (let i=0;i<d.length;i+=4){
+  for(let i=0;i<d.length;i+=4){
     sum += d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
   }
-  const mean = sum/N;
-  const thr = clamp(mean - 35, 60, 190);
+  const mean=sum/N;
+  const thr=clamp(mean-35, 60, 190);
 
-  // rx 주변 작은 박스만 검사
-  const cx = Math.round(rx * tw);
-  const winX = Math.round(tw * 0.06);
-  const x0 = clamp(cx - winX, 0, tw-1);
-  const x1 = clamp(cx + winX, 0, tw-1);
+  const cx=Math.round(rx*tw);
+  const winX=Math.round(tw*0.06);
+  const x0=clamp(cx-winX,0,tw-1);
+  const x1=clamp(cx+winX,0,tw-1);
 
-  const y0 = Math.round(th * 0.20);
-  const y1 = Math.round(th * 0.80);
+  const y0=Math.round(th*0.20);
+  const y1=Math.round(th*0.80);
 
   let dark=0, tot=0;
-  for (let y=y0; y<y1; y++){
-    for (let x=x0; x<=x1; x++){
-      const idx = (y*tw + x) * 4;
-      const lum = d[idx]*0.299 + d[idx+1]*0.587 + d[idx+2]*0.114;
-      if (lum < thr) dark++;
+  for(let y=y0;y<y1;y++){
+    for(let x=x0;x<=x1;x++){
+      const idx=(y*tw+x)*4;
+      const lum=d[idx]*0.299 + d[idx+1]*0.587 + d[idx+2]*0.114;
+      if(lum < thr) dark++;
       tot++;
     }
   }
-  return dark / Math.max(1, tot);
+  return dark/Math.max(1,tot);
 }
 
-function pickChoiceByTapPositions(frame){
-  const xs = (circleXs && circleXs.length===5) ? circleXs : [0.10,0.30,0.50,0.70,0.90];
-  const ratios = xs.map(rx => computeDarkRatioAt(frame, rx));
+function pickChoice(frame){
+  const xs=(circleXs && circleXs.length===5) ? circleXs : [0.10,0.30,0.50,0.70,0.90];
+  const ratios=xs.map(rx=>computeDarkRatioAt(frame, rx));
 
   let best=0;
-  for (let i=1;i<5;i++) if (ratios[i] > ratios[best]) best=i;
+  for(let i=1;i<5;i++) if(ratios[i]>ratios[best]) best=i;
 
   const sorted=[...ratios].sort((a,b)=>b-a);
   const top=sorted[0], second=sorted[1];
 
-  // 너무 약하면 선택 없음
-  if (top < 0.18) return {choice:null, ratios};
+  if(top < 0.18) return {choice:null, ratios};
+  if(top < second + 0.06) return {choice:null, ratios};
 
-  // 1등이 2등보다 확실히 커야 확정
-  if (top < second + 0.06) return {choice:null, ratios};
-
-  return {choice: best+1, ratios};
+  return {choice:best+1, ratios};
 }
 
-/* ===== 라이브 안정화 ===== */
+/* ===== 안정화 ===== */
 let liveOn=false, busy=false;
 let history=[];
 const HISTORY_N=4;
 const TICK_MS=320;
 
 function stableUpdate(choice){
-  if (choice){
+  if(choice){
     history.push(choice);
-    if (history.length > HISTORY_N) history.shift();
-  } else {
+    if(history.length>HISTORY_N) history.shift();
+  }else{
     history=[];
   }
-  const ok = history.length===HISTORY_N && history.every(v=>v===history[0]);
+  const ok=history.length===HISTORY_N && history.every(v=>v===history[0]);
   return ok ? history[0] : null;
 }
 
-/* ===== 결과/오답/ZIP ===== */
-const resultLine = $('#resultLine');
-const resultTable = $('#resultTable');
-const resultBody = $('#resultBody');
-$('#clearResults').onclick = ()=>{
-  gradedResults = new Map();
-  resultBody.innerHTML = '';
-  resultTable.style.display = 'none';
-  resultLine.textContent = '아직 결과가 없습니다.';
+/* 결과/오답/ZIP */
+const resultLine=$('#resultLine');
+const resultTable=$('#resultTable');
+const resultBody=$('#resultBody');
+
+$('#clearResults').onclick=()=>{
+  gradedResults=new Map();
+  resultBody.innerHTML='';
+  resultTable.style.display='none';
+  resultLine.textContent='아직 결과가 없습니다.';
 };
 
-const exportZipBtn = $('#exportZip');
-$('#clearWrong').onclick = ()=>{
-  wrongItems = [];
-  localStorage.removeItem('loop_wrong_v092');
+const exportZipBtn=$('#exportZip');
+$('#clearWrong').onclick=()=>{
+  wrongItems=[];
+  localStorage.removeItem('loop_wrong_v093');
   refreshWrongUI();
 };
 
-let gradedResults = new Map();
-let wrongItems = [];
+let gradedResults=new Map();
+let wrongItems=[];
 
 function refreshWrongUI(){
-  const thumbsEl = $('#thumbs');
-  const wrongStatus = $('#wrongStatus');
-  thumbsEl.innerHTML = '';
+  const thumbsEl=$('#thumbs');
+  const wrongStatus=$('#wrongStatus');
+  thumbsEl.innerHTML='';
   wrongItems.forEach(item=>{
-    const card = document.createElement('div');
-    card.className = 'thumb';
-    const img = document.createElement('img');
-    img.src = item.dataUrl;
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.innerHTML = `Q${item.q} • 정답 ${item.correct} • 내 답 ${item.my} • <span class="bad">❌</span>`;
-    card.appendChild(img);
-    card.appendChild(meta);
+    const card=document.createElement('div');
+    card.className='thumb';
+    const img=document.createElement('img');
+    img.src=item.dataUrl;
+    const meta=document.createElement('div');
+    meta.className='meta';
+    meta.innerHTML=`Q${item.q} • 정답 ${item.correct} • 내 답 ${item.my} • <span class="bad">❌</span>`;
+    card.appendChild(img); card.appendChild(meta);
     thumbsEl.appendChild(card);
   });
-  exportZipBtn.disabled = wrongItems.length === 0;
+  exportZipBtn.disabled = wrongItems.length===0;
   wrongStatus.textContent = wrongItems.length ? `오답 ${wrongItems.length}개 저장됨` : '';
 }
 (function loadWrong(){
-  const saved = localStorage.getItem('loop_wrong_v092');
-  if (saved){
-    try{ wrongItems = JSON.parse(saved) || []; }catch{}
-  }
+  const s=localStorage.getItem('loop_wrong_v093');
+  if(s){ try{ wrongItems=JSON.parse(s)||[]; }catch{} }
   refreshWrongUI();
 })();
-function saveWrong(){
-  try{ localStorage.setItem('loop_wrong_v092', JSON.stringify(wrongItems)); }catch{}
-}
+function saveWrong(){ try{ localStorage.setItem('loop_wrong_v093', JSON.stringify(wrongItems)); }catch{} }
 
 function renderResult(q, correct, my, ok, frame){
-  gradedResults.set(q, {correct, my, ok});
+  gradedResults.set(q,{correct,my,ok});
 
-  resultBody.innerHTML = '';
-  const entries = Array.from(gradedResults.entries()).sort((a,b)=>a[0]-b[0]);
-  for (const [qn, r] of entries){
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${qn}</td><td>${r.correct}</td><td>${r.my}</td><td class="${r.ok?'good':'bad'}">${r.ok?'✅':'❌'}</td>`;
+  resultBody.innerHTML='';
+  const entries=Array.from(gradedResults.entries()).sort((a,b)=>a[0]-b[0]);
+  for(const [qn,r] of entries){
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${qn}</td><td>${r.correct}</td><td>${r.my}</td><td class="${r.ok?'good':'bad'}">${r.ok?'✅':'❌'}</td>`;
     resultBody.appendChild(tr);
   }
-  resultTable.style.display = 'table';
-  resultLine.innerHTML = `Q${q} • 정답 ${correct} • 내 답 ${my} • <span class="${ok?'good':'bad'}">${ok?'✅ 정답':'❌ 오답'}</span>`;
+  resultTable.style.display='table';
+  resultLine.innerHTML=`Q${q} • 정답 ${correct} • 내 답 ${my} • <span class="${ok?'good':'bad'}">${ok?'✅ 정답':'❌ 오답'}</span>`;
 
-  if (!ok){
-    const already = wrongItems.some(it => it.q === q);
-    if (!already){
-      const cap = document.createElement('canvas');
-      cap.width = frame.width; cap.height = frame.height;
-      cap.getContext('2d').drawImage(frame, 0, 0);
-      const dataUrl = cap.toDataURL('image/jpeg', 0.85);
-      wrongItems.push({ q, correct, my, dataUrl });
+  if(!ok){
+    const already=wrongItems.some(it=>it.q===q);
+    if(!already){
+      const dataUrl=frame.toDataURL('image/jpeg',0.85);
+      wrongItems.push({q,correct,my,dataUrl});
       saveWrong();
       refreshWrongUI();
     }
   }
 }
 
-exportZipBtn.onclick = async ()=>{
-  if (!wrongItems.length){ alert('오답이 없습니다.'); return; }
-
-  const zip = new JSZip();
-  const lines = ['question,correct,my'];
-  wrongItems.forEach(it => lines.push(`${it.q},${it.correct},${it.my}`));
+exportZipBtn.onclick=async ()=>{
+  if(!wrongItems.length){ alert('오답이 없습니다.'); return; }
+  const zip=new JSZip();
+  const lines=['question,correct,my'];
+  wrongItems.forEach(it=>lines.push(`${it.q},${it.correct},${it.my}`));
   zip.file('wrong_list.csv', lines.join('\n'));
-
-  zip.file('choice_box.json', JSON.stringify(choiceBox, null, 2));
-  zip.file('circle_positions.json', JSON.stringify(circleXs, null, 2));
+  zip.file('choice_box.json', JSON.stringify(choiceBox,null,2));
+  zip.file('circle_positions.json', JSON.stringify(circleXs,null,2));
   zip.file('answer_key.txt', answerKeyEl.value.trim());
   zip.file('version.txt', VERSION);
 
-  const folder = zip.folder('wrong_images');
-  for (const it of wrongItems){
-    const base64 = it.dataUrl.split(',')[1];
+  const folder=zip.folder('wrong_images');
+  for(const it of wrongItems){
+    const base64=it.dataUrl.split(',')[1];
     folder.file(`Q${String(it.q).padStart(3,'0')}_wrong.jpg`, base64, {base64:true});
   }
 
-  const blob = await zip.generateAsync({type:'blob'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `Loop_wrongnotes_${Date.now()}.zip`;
+  const blob=await zip.generateAsync({type:'blob'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`Loop_wrongnotes_${Date.now()}.zip`;
   a.click();
   URL.revokeObjectURL(url);
 };
 
-/* ===== LIVE ===== */
+/* LIVE */
 async function tick(){
-  if (!liveOn) return;
-  if (busy){ setTimeout(tick, 120); return; }
-  busy = true;
+  if(!liveOn) return;
+  if(busy){ setTimeout(tick,120); return; }
+  busy=true;
 
   try{
-    const frame = getFrameCanvas();
-    if (!frame){
+    const frame=getDisplayFrameCanvas();
+    if(!frame){
       setStatus('카메라 준비 중…', true);
-      liveInfo.textContent = `video: ${cam.videoWidth||0}x${cam.videoHeight||0}`;
-      setTimeout(tick, 200);
+      liveInfo.textContent=`video ${cam.videoWidth||0}x${cam.videoHeight||0} / view ${cam.clientWidth||0}x${cam.clientHeight||0}`;
+      setTimeout(tick,200);
       return;
     }
 
-    const q = parseInt(qNumEl.value,10) || 1;
-    const correct = answerKeyMap.get(q) || null;
+    const q=parseInt(qNumEl.value,10)||1;
+    const correct=answerKeyMap.get(q)||null;
 
-    const {choice, ratios} = pickChoiceByTapPositions(frame);
-    const final = stableUpdate(choice);
+    const {choice, ratios}=pickChoice(frame);
+    const final=stableUpdate(choice);
 
-    // 상태표시(최소한만)
-    const r = ratios.map(v=>v.toFixed(2)).join(' ');
-    if (final){
-      liveInfo.textContent = `내 답 확정: ${final} (검정비율 ${r})`;
-    } else if (choice){
-      liveInfo.textContent = `감지 중: ${choice} (검정비율 ${r})`;
-    } else {
-      liveInfo.textContent = `감지 중... (검정비율 ${r})`;
-    }
+    const r=ratios.map(v=>v.toFixed(2)).join(' ');
+    if(final) liveInfo.textContent=`내 답 확정: ${final} (검정비율 ${r})`;
+    else if(choice) liveInfo.textContent=`감지 중: ${choice} (검정비율 ${r})`;
+    else liveInfo.textContent=`감지 중... (검정비율 ${r})`;
 
-    if (final && correct){
-      const ok = (final === correct);
-      const prev = gradedResults.get(q);
-      if (!prev || prev.my !== final){
+    if(final && correct){
+      const ok=(final===correct);
+      const prev=gradedResults.get(q);
+      if(!prev || prev.my!==final){
         renderResult(q, correct, final, ok, frame);
       }
-    } else if (final && !correct){
-      resultLine.textContent = `Q${q} • 내 답은 ${final}인데, 정답표에 Q${q} 정답이 없어요.`;
     }
 
     setStatus('LIVE ON', true);
   }catch(e){
     console.error(e);
     setStatus('에러', true);
-    liveInfo.textContent = '감지 실패(박스/초점/조명 확인)';
+    liveInfo.textContent='감지 실패(박스/초점/조명 확인)';
   }finally{
-    busy = false;
+    busy=false;
     setTimeout(tick, TICK_MS);
   }
 }
 
-startLiveBtn.onclick = ()=>{
-  if (!cam.srcObject){ alert('먼저 카메라를 켜주세요.'); return; }
-  if (!answerKeyMap.size){ alert('먼저 정답표 적용을 눌러 주세요.'); return; }
-  if (!circleXs || circleXs.length !== 5){
-    alert('처음 한 번만 “원 위치 설정(①→⑤)”을 해주세요.');
-    return;
-  }
-  if (calibrating){
-    alert('원 위치 설정을 먼저 끝내주세요.');
-    return;
-  }
+startLiveBtn.onclick=()=>{
+  if(!cam.srcObject){ alert('먼저 카메라를 켜주세요.'); return; }
+  if(!answerKeyMap.size){ alert('먼저 정답표 적용을 눌러 주세요.'); return; }
+  if(!circleXs || circleXs.length!==5){ alert('처음 한 번만 “원 위치 설정(①→⑤)”을 해주세요.'); return; }
+  if(calibrating){ alert('원 위치 설정을 먼저 끝내주세요.'); return; }
 
-  liveOn = true;
-  editMode = false;
-  toggleEditBtn.textContent = '편집 모드: OFF';
+  liveOn=true;
+  editMode=false;
+  toggleEditBtn.textContent='편집 모드: OFF';
   renderBoxAndMarkers();
 
-  startLiveBtn.disabled = true;
-  stopLiveBtn.disabled = false;
-  history = [];
+  startLiveBtn.disabled=true;
+  stopLiveBtn.disabled=false;
+  history=[];
 
   setStatus('LIVE ON', true);
   tick();
 };
 
-stopLiveBtn.onclick = ()=>{
-  liveOn = false;
+stopLiveBtn.onclick=()=>{
+  liveOn=false;
   setStatus('중지');
-  startLiveBtn.disabled = false;
-  stopLiveBtn.disabled = true;
-  history = [];
+  startLiveBtn.disabled=false;
+  stopLiveBtn.disabled=true;
+  history=[];
 };
 
 window.addEventListener('beforeunload', ()=>{
-  if (stream){ stream.getTracks().forEach(t=>t.stop()); }
+  if(stream) stream.getTracks().forEach(t=>t.stop());
 });
 </script>
 </body>

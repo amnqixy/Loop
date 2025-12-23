@@ -3,12 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Loop - 실시간 자동 채점 & 오답노트 (v0.9.1)</title>
+<title>Loop - 실시간 자동 채점 & 오답노트 (v0.9.2)</title>
 <style>
-  :root{
-    --bg:#fffef7; --card:#fff; --ink:#1b1b1b; --muted:#666;
-    --line:#e8e2c8; --good:#0a7d2a; --bad:#b00020; --blue:#00a3ff;
-  }
+  :root{--bg:#fffef7;--card:#fff;--ink:#1b1b1b;--muted:#666;--line:#e8e2c8;--good:#0a7d2a;--bad:#b00020;--blue:#00a3ff;}
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,system-ui,sans-serif;margin:16px;background:var(--bg);color:var(--ink)}
   h1{font-size:20px;margin:0 0 6px}
@@ -28,13 +25,10 @@
 
   .camWrap{position:relative;width:100%;max-height:52vh;overflow:hidden;border-radius:12px;border:1px solid var(--line);background:#000}
   video{width:100%;height:auto;display:block}
-  .overlay{position:absolute;inset:0;pointer-events:none}
-
+  .overlay{position:absolute;inset:0}
   .box{
     position:absolute;border:2px solid var(--blue);border-radius:10px;
     background:rgba(0,163,255,0.06);
-    display:flex;align-items:center;justify-content:center;
-    color:#fff;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.6);
     pointer-events:auto; touch-action:none;
   }
   .box.locked{border-style:dashed;opacity:0.92;pointer-events:none;}
@@ -47,6 +41,14 @@
     background:var(--blue);border:2px solid rgba(255,255,255,.7)
   }
 
+  .marker{
+    position:absolute;width:14px;height:14px;border-radius:999px;
+    border:2px solid #fff;background:rgba(0,163,255,.95);
+    transform:translate(-50%,-50%);
+    pointer-events:none;
+  }
+  .num{width:90px;border:1px solid var(--line);border-radius:10px;padding:8px;background:#fff}
+
   table{border-collapse:collapse;width:100%;font-size:14px;margin-top:8px}
   th,td{border:1px solid var(--line);padding:6px 8px;text-align:left}
   th{background:#fffbda}
@@ -55,14 +57,15 @@
   .thumb{border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden}
   .thumb img{width:100%;display:block}
   .thumb .meta{padding:8px;font-size:12px;color:var(--muted)}
-
-  .num{width:90px;border:1px solid var(--line);border-radius:10px;padding:8px;background:#fff}
 </style>
 </head>
 
 <body>
-  <h1>Loop - 실시간 자동 채점 & 오답노트 <span class="pill">v0.9.1</span></h1>
-  <p class="sub">박스를 ①②③④⑤ 줄에 맞추고 “실시간 시작”을 누르세요.</p>
+  <h1>Loop - 실시간 자동 채점 & 오답노트 <span class="pill">v0.9.2</span></h1>
+  <p class="sub">
+    한 번만 “원 위치 설정”으로 ①~⑤를 차례대로 눌러서 위치를 저장하면,
+    이후에는 검은 사인펜 체크(가장 까만 곳)를 자동으로 답으로 잡습니다.
+  </p>
 
   <div class="card">
     <h2 style="margin:0 0 8px">① 정답표</h2>
@@ -83,6 +86,7 @@
       <button id="toggleEdit" disabled>편집 모드: ON</button>
       <button id="saveBox" disabled>박스 저장</button>
       <button id="resetBox" disabled>박스 초기화</button>
+      <button id="calibrate" disabled>원 위치 설정(①→⑤)</button>
       <button id="startLive" disabled>실시간 시작</button>
       <button id="stopLive" disabled>중지</button>
       <span id="status" class="pill">대기</span>
@@ -102,7 +106,7 @@
     </div>
 
     <div class="muted" style="margin-top:8px;line-height:1.5">
-      팁: 박스는 “①②③④⑤ 한 줄”만 최대한 좁게 잡아주세요.
+      필수: 박스는 ①②③④⑤가 있는 “한 줄”만 최대한 딱 맞게 잡아주세요.
     </div>
   </div>
 
@@ -133,7 +137,7 @@
 
 <script>
 /* ===== 유틸 ===== */
-const VERSION = 'v0.9.1';
+const VERSION = 'v0.9.2';
 const $ = s => document.querySelector(s);
 const statusEl = $('#status');
 function setStatus(text, live=false){
@@ -173,7 +177,7 @@ function parseAnswerKey(text){
   }
   return map;
 }
-const savedKey = localStorage.getItem('loop_key_v091');
+const savedKey = localStorage.getItem('loop_key_v092');
 if (savedKey) answerKeyEl.value = savedKey;
 
 applyKeyBtn.onclick = ()=>{
@@ -182,12 +186,12 @@ applyKeyBtn.onclick = ()=>{
   if (!answerKeyMap.size) alert('정답표 예시: 1:3 2:5');
 };
 saveKeyBtn.onclick = ()=>{
-  localStorage.setItem('loop_key_v091', answerKeyEl.value.trim());
+  localStorage.setItem('loop_key_v092', answerKeyEl.value.trim());
   alert('저장했어요.');
 };
 clearKeyBtn.onclick = ()=>{
   answerKeyEl.value = '';
-  localStorage.removeItem('loop_key_v091');
+  localStorage.removeItem('loop_key_v092');
   answerKeyMap = new Map();
   keyStatus.textContent = '';
 };
@@ -199,6 +203,7 @@ const startCamBtn = $('#startCam');
 const toggleEditBtn = $('#toggleEdit');
 const saveBoxBtn = $('#saveBox');
 const resetBoxBtn = $('#resetBox');
+const calibrateBtn = $('#calibrate');
 const startLiveBtn = $('#startLive');
 const stopLiveBtn = $('#stopLive');
 const liveInfo = $('#liveInfo');
@@ -210,18 +215,31 @@ $('#nextQ').onclick = ()=> qNumEl.value = (parseInt(qNumEl.value,10)||1) + 1;
 let stream = null;
 let editMode = true;
 
+// 1개 박스
 let choiceBox = { x:0.08, y:0.65, w:0.84, h:0.22 };
 (function loadBox(){
-  const saved = localStorage.getItem('loop_box_v091');
+  const saved = localStorage.getItem('loop_box_v092');
   if (saved){
     try{ choiceBox = JSON.parse(saved); }catch{}
   }
 })();
 function saveBox(){
-  localStorage.setItem('loop_box_v091', JSON.stringify(choiceBox));
+  localStorage.setItem('loop_box_v092', JSON.stringify(choiceBox));
 }
 
-function renderBox(){
+// ①~⑤의 “x 위치” (박스 안에서 0~1)
+let circleXs = null;
+(function loadCircles(){
+  const s = localStorage.getItem('loop_circles_v092');
+  if (s){
+    try{ circleXs = JSON.parse(s); }catch{}
+  }
+})();
+function saveCircles(){
+  localStorage.setItem('loop_circles_v092', JSON.stringify(circleXs));
+}
+
+function renderBoxAndMarkers(){
   overlay.innerHTML = '';
   const wrap = overlay.getBoundingClientRect();
 
@@ -245,6 +263,19 @@ function renderBox(){
     el.style.top  = (choiceBox.y * H) + 'px';
     el.style.width  = (choiceBox.w * W) + 'px';
     el.style.height = (choiceBox.h * H) + 'px';
+
+    // 마커 표시(저장된 위치가 있으면)
+    if (circleXs && Array.isArray(circleXs) && circleXs.length===5){
+      for (let i=0;i<5;i++){
+        const m = document.createElement('div');
+        m.className = 'marker';
+        const mx = (choiceBox.x + choiceBox.w * circleXs[i]) * W;
+        const my = (choiceBox.y + choiceBox.h * 0.5) * H;
+        m.style.left = mx+'px';
+        m.style.top = my+'px';
+        overlay.appendChild(m);
+      }
+    }
   }
   applyPos();
 
@@ -289,15 +320,18 @@ function renderBox(){
 
   window.addEventListener('resize', applyPos);
 }
-renderBox();
+renderBoxAndMarkers();
 
 toggleEditBtn.onclick = ()=>{
   editMode = !editMode;
   toggleEditBtn.textContent = '편집 모드: ' + (editMode ? 'ON' : 'OFF');
-  renderBox();
+  renderBoxAndMarkers();
 };
 saveBoxBtn.onclick = ()=>{ saveBox(); alert('박스 저장 완료'); };
-resetBoxBtn.onclick = ()=>{ choiceBox = { x:0.08, y:0.65, w:0.84, h:0.22 }; renderBox(); };
+resetBoxBtn.onclick = ()=>{
+  choiceBox = { x:0.08, y:0.65, w:0.84, h:0.22 };
+  renderBoxAndMarkers();
+};
 
 startCamBtn.onclick = async ()=>{
   try{
@@ -306,43 +340,99 @@ startCamBtn.onclick = async ()=>{
       audio:false
     });
     cam.srcObject = stream;
+
+    // iOS에서 이거 안 기다리면 분석이 “빈 화면”이 될 때가 많음
+    await new Promise(res=>{
+      cam.onloadedmetadata = ()=>res();
+    });
     await cam.play();
 
     toggleEditBtn.disabled = false;
     saveBoxBtn.disabled = false;
     resetBoxBtn.disabled = false;
+    calibrateBtn.disabled = false;
     startLiveBtn.disabled = false;
 
     setStatus('카메라 준비됨');
-    renderBox();
+    renderBoxAndMarkers();
   }catch(e){
     console.error(e);
     alert('카메라 권한을 허용해 주세요.');
   }
 };
 
-/* ===== 핵심: “동그라미 위치 5개”를 자동으로 찾고, 가장 까만 위치를 답으로 ===== */
+/* ===== 원 위치 설정(①→⑤ 탭 5번) ===== */
+let calibrating = false;
+let calStep = 0;
 
+calibrateBtn.onclick = ()=>{
+  if (!cam.srcObject) { alert('먼저 카메라를 켜세요.'); return; }
+  calibrating = true;
+  calStep = 0;
+  circleXs = [];
+  renderBoxAndMarkers();
+  setStatus('원 위치 설정 중');
+  liveInfo.textContent = '①을 눌러주세요';
+};
+
+// overlay에서 탭 좌표 받기
+overlay.addEventListener('pointerdown', (e)=>{
+  if (!calibrating) return;
+
+  const wrap = overlay.getBoundingClientRect();
+  const x = (e.clientX - wrap.left) / wrap.width;   // 화면 전체 기준 0~1
+  const y = (e.clientY - wrap.top) / wrap.height;
+
+  // 박스 내부만 허용
+  const bx0 = choiceBox.x;
+  const by0 = choiceBox.y;
+  const bx1 = choiceBox.x + choiceBox.w;
+  const by1 = choiceBox.y + choiceBox.h;
+
+  if (x < bx0 || x > bx1 || y < by0 || y > by1){
+    liveInfo.textContent = '박스 안에서 눌러주세요';
+    return;
+  }
+
+  // 박스 안 x로 변환(0~1)
+  const rx = (x - bx0) / (bx1 - bx0);
+  circleXs.push(clamp(rx, 0, 1));
+
+  calStep++;
+  if (calStep < 5){
+    liveInfo.textContent = `${['②','③','④','⑤'][calStep-1]}을 눌러주세요`;
+  } else {
+    // 정렬해서 ①~⑤ 순서로 고정
+    circleXs.sort((a,b)=>a-b);
+    saveCircles();
+    calibrating = false;
+    setStatus('원 위치 설정 완료');
+    liveInfo.textContent = '완료';
+    renderBoxAndMarkers();
+  }
+});
+
+/* ===== 분석(검은 사인펜 체크: 가장 까만 곳) ===== */
 function getFrameCanvas(){
-  const vw = cam.videoWidth || 640;
-  const vh = cam.videoHeight || 480;
+  if (cam.readyState < 2 || !cam.videoWidth || !cam.videoHeight) return null;
   const c = document.createElement('canvas');
-  c.width = vw; c.height = vh;
-  c.getContext('2d').drawImage(cam, 0, 0, vw, vh);
+  c.width = cam.videoWidth;
+  c.height = cam.videoHeight;
+  c.getContext('2d').drawImage(cam, 0, 0, c.width, c.height);
   return c;
 }
 
-// ROI 추출 + 축소 + 흑백 임계값
-function getRoiBinary(frame){
+function computeDarkRatioAt(frame, rx){
   const vw = frame.width, vh = frame.height;
   const bx = Math.round(choiceBox.x * vw);
   const by = Math.round(choiceBox.y * vh);
   const bw = Math.round(choiceBox.w * vw);
   const bh = Math.round(choiceBox.h * vh);
 
-  const targetW = 760;
+  // ROI를 조금 축소해서 성능 확보
+  const targetW = 820;
   const s = Math.min(1, targetW / Math.max(1, bw));
-  const tw = Math.max(360, Math.round(bw * s));
+  const tw = Math.max(320, Math.round(bw * s));
   const th = Math.max(140, Math.round(bh * s));
 
   const cut = document.createElement('canvas');
@@ -353,140 +443,60 @@ function getRoiBinary(frame){
   const img = ctx.getImageData(0,0,tw,th);
   const d = img.data;
 
-  // 전체 평균 밝기로 임계값 잡기
-  let sum = 0;
-  const N = tw * th;
+  // 평균 밝기로 임계값 자동
+  let sum=0;
+  const N=tw*th;
   for (let i=0;i<d.length;i+=4){
-    const lum = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
-    sum += lum;
+    sum += d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
   }
-  const mean = sum / N;
-  const thr = clamp(mean - 30, 55, 200);
+  const mean = sum/N;
+  const thr = clamp(mean - 35, 60, 190);
 
-  // binary: 검정=1, 흰색=0
-  const bin = new Uint8Array(tw * th);
-  for (let y=0; y<th; y++){
-    for (let x=0; x<tw; x++){
+  // rx 주변 작은 박스만 검사
+  const cx = Math.round(rx * tw);
+  const winX = Math.round(tw * 0.06);
+  const x0 = clamp(cx - winX, 0, tw-1);
+  const x1 = clamp(cx + winX, 0, tw-1);
+
+  const y0 = Math.round(th * 0.20);
+  const y1 = Math.round(th * 0.80);
+
+  let dark=0, tot=0;
+  for (let y=y0; y<y1; y++){
+    for (let x=x0; x<=x1; x++){
       const idx = (y*tw + x) * 4;
       const lum = d[idx]*0.299 + d[idx+1]*0.587 + d[idx+2]*0.114;
-      bin[y*tw + x] = (lum < thr) ? 1 : 0;
+      if (lum < thr) dark++;
+      tot++;
     }
   }
-
-  return { tw, th, bin };
+  return dark / Math.max(1, tot);
 }
 
-// x방향으로 “검정이 얼마나 쌓였는지” (동그라미 위치 찾기)
-function columnDarkProfile(tw, th, bin){
-  // 위아래 여백을 좀 버림
-  const y0 = Math.round(th * 0.15);
-  const y1 = Math.round(th * 0.85);
+function pickChoiceByTapPositions(frame){
+  const xs = (circleXs && circleXs.length===5) ? circleXs : [0.10,0.30,0.50,0.70,0.90];
+  const ratios = xs.map(rx => computeDarkRatioAt(frame, rx));
 
-  const prof = new Float32Array(tw);
-  for (let x=0; x<tw; x++){
-    let acc = 0;
-    for (let y=y0; y<y1; y++){
-      acc += bin[y*tw + x];
-    }
-    prof[x] = acc; // 클수록 그 x열에 검정이 많음
-  }
-  return prof;
-}
+  let best=0;
+  for (let i=1;i<5;i++) if (ratios[i] > ratios[best]) best=i;
 
-// 간단한 이동평균으로 부드럽게
-function smooth(arr, win){
-  const out = new Float32Array(arr.length);
-  const half = Math.floor(win/2);
-  for (let i=0;i<arr.length;i++){
-    let s=0,c=0;
-    for (let k=i-half; k<=i+half; k++){
-      if (k<0 || k>=arr.length) continue;
-      s += arr[k]; c++;
-    }
-    out[i] = s / Math.max(1,c);
-  }
-  return out;
-}
+  const sorted=[...ratios].sort((a,b)=>b-a);
+  const top=sorted[0], second=sorted[1];
 
-// 5개의 “봉우리(피크)” 찾기: 동그라미가 있는 x대략 위치
-function pick5Peaks(profile){
-  const p = smooth(profile, 21);
-  const maxv = Math.max(...p);
-  if (maxv < 8) return null; // 거의 아무것도 없으면 실패(박스가 엉뚱한 곳)
+  // 너무 약하면 선택 없음
+  if (top < 0.18) return {choice:null, ratios};
 
-  const peaks = [];
-  const minDist = Math.floor(p.length / 8); // 너무 가까운 피크는 하나로 취급
+  // 1등이 2등보다 확실히 커야 확정
+  if (top < second + 0.06) return {choice:null, ratios};
 
-  // 가장 큰 봉우리부터 5개 뽑기
-  const idxs = Array.from({length:p.length}, (_,i)=>i);
-  idxs.sort((a,b)=>p[b]-p[a]);
-
-  for (const i of idxs){
-    if (p[i] < maxv * 0.35) break; // 너무 작은 건 무시
-    if (peaks.some(j=>Math.abs(j-i) < minDist)) continue;
-    peaks.push(i);
-    if (peaks.length === 5) break;
-  }
-
-  if (peaks.length < 5) return null;
-  peaks.sort((a,b)=>a-b);
-  return peaks;
-}
-
-// 각 피크 주변 “검정 비율” 계산 → 가장 까만 피크가 답
-function scoreAroundPeaks(tw, th, bin, peaks){
-  const y0 = Math.round(th * 0.18);
-  const y1 = Math.round(th * 0.82);
-
-  const scores = []; // 5개
-  const window = Math.floor(tw * 0.08); // 피크 좌우 범위
-
-  for (const cx of peaks){
-    const x0 = clamp(cx - window, 0, tw-1);
-    const x1 = clamp(cx + window, 0, tw-1);
-
-    let dark=0, tot=0;
-    for (let y=y0; y<y1; y++){
-      for (let x=x0; x<=x1; x++){
-        const v = bin[y*tw + x];
-        dark += v;
-        tot++;
-      }
-    }
-    scores.push(dark / Math.max(1, tot));
-  }
-  return scores;
-}
-
-function pickChoiceByAutoCircles(frame){
-  const {tw, th, bin} = getRoiBinary(frame);
-  const prof = columnDarkProfile(tw, th, bin);
-  const peaks = pick5Peaks(prof);
-
-  if (!peaks) return { choice:null, debug:'동그라미 위치를 못 찾음(박스가 너무 넓거나 위치가 틀림)' };
-
-  const scores = scoreAroundPeaks(tw, th, bin, peaks);
-
-  // 가장 까만 곳 찾기
-  let best = 0;
-  for (let i=1;i<5;i++) if (scores[i] > scores[best]) best = i;
-
-  // “확실히” 까매야 선택으로 인정
-  const sorted = [...scores].sort((a,b)=>b-a);
-  const top = sorted[0], second = sorted[1];
-
-  if (top < 0.12) return { choice:null, debug:'전체가 너무 밝음(체크가 없거나 카메라가 흐림)' };
-  if (top < second + 0.05) return { choice:null, debug:'차이가 작음(흔들림/초점/박스넓음)' };
-
-  // best는 왼쪽부터 0~4, 즉 1~5
-  return { choice: best + 1, debug: `점수 ${scores.map(v=>v.toFixed(2)).join(' ')}` };
+  return {choice: best+1, ratios};
 }
 
 /* ===== 라이브 안정화 ===== */
 let liveOn=false, busy=false;
 let history=[];
-const HISTORY_N = 4;
-const TICK_MS = 320;
+const HISTORY_N=4;
+const TICK_MS=320;
 
 function stableUpdate(choice){
   if (choice){
@@ -513,7 +523,7 @@ $('#clearResults').onclick = ()=>{
 const exportZipBtn = $('#exportZip');
 $('#clearWrong').onclick = ()=>{
   wrongItems = [];
-  localStorage.removeItem('loop_wrong_v091');
+  localStorage.removeItem('loop_wrong_v092');
   refreshWrongUI();
 };
 
@@ -540,14 +550,14 @@ function refreshWrongUI(){
   wrongStatus.textContent = wrongItems.length ? `오답 ${wrongItems.length}개 저장됨` : '';
 }
 (function loadWrong(){
-  const saved = localStorage.getItem('loop_wrong_v091');
+  const saved = localStorage.getItem('loop_wrong_v092');
   if (saved){
     try{ wrongItems = JSON.parse(saved) || []; }catch{}
   }
   refreshWrongUI();
 })();
 function saveWrong(){
-  try{ localStorage.setItem('loop_wrong_v091', JSON.stringify(wrongItems)); }catch{}
+  try{ localStorage.setItem('loop_wrong_v092', JSON.stringify(wrongItems)); }catch{}
 }
 
 function renderResult(q, correct, my, ok, frame){
@@ -586,6 +596,7 @@ exportZipBtn.onclick = async ()=>{
   zip.file('wrong_list.csv', lines.join('\n'));
 
   zip.file('choice_box.json', JSON.stringify(choiceBox, null, 2));
+  zip.file('circle_positions.json', JSON.stringify(circleXs, null, 2));
   zip.file('answer_key.txt', answerKeyEl.value.trim());
   zip.file('version.txt', VERSION);
 
@@ -604,27 +615,35 @@ exportZipBtn.onclick = async ()=>{
   URL.revokeObjectURL(url);
 };
 
-/* ===== LIVE 루프 ===== */
+/* ===== LIVE ===== */
 async function tick(){
   if (!liveOn) return;
   if (busy){ setTimeout(tick, 120); return; }
   busy = true;
 
   try{
+    const frame = getFrameCanvas();
+    if (!frame){
+      setStatus('카메라 준비 중…', true);
+      liveInfo.textContent = `video: ${cam.videoWidth||0}x${cam.videoHeight||0}`;
+      setTimeout(tick, 200);
+      return;
+    }
+
     const q = parseInt(qNumEl.value,10) || 1;
     const correct = answerKeyMap.get(q) || null;
 
-    const frame = getFrameCanvas();
-    const {choice, debug} = pickChoiceByAutoCircles(frame);
-
+    const {choice, ratios} = pickChoiceByTapPositions(frame);
     const final = stableUpdate(choice);
 
+    // 상태표시(최소한만)
+    const r = ratios.map(v=>v.toFixed(2)).join(' ');
     if (final){
-      liveInfo.textContent = `내 답 확정: ${final}  (${debug})`;
+      liveInfo.textContent = `내 답 확정: ${final} (검정비율 ${r})`;
     } else if (choice){
-      liveInfo.textContent = `감지 중: ${choice}  (${debug})`;
+      liveInfo.textContent = `감지 중: ${choice} (검정비율 ${r})`;
     } else {
-      liveInfo.textContent = `감지 중... (${debug})`;
+      liveInfo.textContent = `감지 중... (검정비율 ${r})`;
     }
 
     if (final && correct){
@@ -649,13 +668,21 @@ async function tick(){
 }
 
 startLiveBtn.onclick = ()=>{
-  if (!cam.srcObject){ alert('먼저 “카메라 켜기”를 눌러주세요.'); return; }
-  if (!answerKeyMap.size){ alert('먼저 “정답표 적용”을 눌러 주세요.'); return; }
+  if (!cam.srcObject){ alert('먼저 카메라를 켜주세요.'); return; }
+  if (!answerKeyMap.size){ alert('먼저 정답표 적용을 눌러 주세요.'); return; }
+  if (!circleXs || circleXs.length !== 5){
+    alert('처음 한 번만 “원 위치 설정(①→⑤)”을 해주세요.');
+    return;
+  }
+  if (calibrating){
+    alert('원 위치 설정을 먼저 끝내주세요.');
+    return;
+  }
 
   liveOn = true;
   editMode = false;
   toggleEditBtn.textContent = '편집 모드: OFF';
-  renderBox();
+  renderBoxAndMarkers();
 
   startLiveBtn.disabled = true;
   stopLiveBtn.disabled = false;

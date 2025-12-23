@@ -12,10 +12,10 @@
   *{box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,system-ui,sans-serif;margin:16px;background:var(--bg);color:var(--ink)}
   h1{font-size:20px;margin:0 0 6px}
-  .sub{margin:0 0 14px;color:var(--muted);font-size:12px;line-height:1.4}
+  .sub{margin:0 0 14px;color:var(--muted);font-size:12px;line-height:1.45}
   .card{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;background:var(--card)}
   textarea,input,button{font:inherit}
-  textarea{width:100%;min-height:84px;border:1px solid var(--line);border-radius:10px;padding:10px;background:#fffdfa}
+  textarea{width:100%;min-height:82px;border:1px solid var(--line);border-radius:10px;padding:10px;background:#fffdfa}
   button{border:1px solid var(--line);border-radius:10px;background:#fff;padding:8px 12px}
   button:disabled{opacity:.5}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -30,7 +30,7 @@
   video{width:100%;height:auto;display:block}
   .overlay{position:absolute;inset:0;pointer-events:none}
 
-  /* Guide box is ALWAYS visible.
+  /* Guide box ALWAYS visible.
      Edit ON: movable/resizable
      Edit OFF: locked but visible */
   .box{
@@ -42,7 +42,7 @@
   }
   .box.locked{
     border-style:dashed;
-    opacity:0.9;
+    opacity:0.92;
     pointer-events:none; /* locked = can't touch */
   }
   .box .label{
@@ -62,6 +62,7 @@
   .thumb{border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden}
   .thumb img{width:100%;display:block}
   .thumb .meta{padding:8px;font-size:12px;color:var(--muted)}
+
   .num{width:90px;border:1px solid var(--line);border-radius:10px;padding:8px;background:#fff}
 </style>
 </head>
@@ -69,13 +70,13 @@
 <body>
   <h1>Loop - 실시간 자동 채점 & 오답노트</h1>
   <p class="sub">
-    선택지 기호가 <b>①②③④⑤</b>이고 선택하면 <b>●</b>로 바뀌는 형태를 지원합니다.<br>
-    원리: 5칸 중에서 <b>“기호가 사라졌거나(가려짐) ●가 생긴 칸”</b>을 내 답으로 판단합니다.
+    원리: 박스 안에서 OCR로 <b>보이는 숫자(1~5)</b>를 읽고, <b>안 보이는 숫자</b>를 내 답으로 확정합니다.<br>
+    성공 조건: 박스 안에는 되도록 <code>1 2 3 4 5</code> 숫자만 깔끔하게 보이게 해주세요.
   </p>
 
   <div class="card">
     <h2 style="margin:0 0 8px">① 정답표</h2>
-    <p class="muted">형식: <code>1:3 2:5 3:1</code> (뜻: 1번 정답=③)</p>
+    <p class="muted">형식: <code>1:3 2:5 3:1</code> (뜻: 1번 정답=3)</p>
     <textarea id="answerKey" placeholder="예) 1:3 2:5 3:1 4:2 5:4"></textarea>
     <div class="row" style="margin-top:6px">
       <button id="applyKey">정답표 적용</button>
@@ -110,17 +111,16 @@
       <div class="overlay" id="overlay"></div>
     </div>
 
-    <p class="muted" style="margin:8px 0 0;line-height:1.5">
-      박스는 “①②③④⑤/●가 있는 부분”만 최대한 감싸게 맞추세요.<br>
-      옆의 10/20/30 같은 숫자는 박스에 많이 들어오면 방해될 수 있어요.
-    </p>
+    <div class="muted" style="margin-top:8px;line-height:1.5">
+      팁: 박스는 <b>1 2 3 4 5 숫자만</b> 들어오게 최대한 좁게 맞추세요. 다른 글자/선이 들어오면 OCR이 흔들립니다.
+    </div>
   </div>
 
   <div class="card">
     <h2 style="margin:0 0 8px">③ 채점 결과</h2>
     <div id="resultLine" class="muted">아직 결과가 없습니다.</div>
     <table id="resultTable" style="display:none">
-      <thead><tr><th>문제</th><th>정답</th><th>내 답</th><th>결과</th></tr></thead>
+      <thead><tr><th>문제</th><th>정답</th><th>내 답(빠진 숫자)</th><th>결과</th></tr></thead>
       <tbody id="resultBody"></tbody>
     </table>
     <div class="row" style="margin-top:8px">
@@ -130,7 +130,7 @@
 
   <div class="card">
     <h2 style="margin:0 0 8px">④ 오답노트</h2>
-    <div class="muted">틀린 문제는 자동으로 캡처되어 저장됩니다.</div>
+    <div class="muted">틀린 문제는 자동 캡처되어 저장됩니다.</div>
     <div class="row" style="margin-top:8px">
       <button id="exportZip" disabled>ZIP 내보내기</button>
       <button id="clearWrong">오답 삭제</button>
@@ -140,6 +140,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
 <script>
 /* =========================
@@ -187,7 +188,7 @@ function parseAnswerKey(text){
   return map;
 }
 
-const savedKey = localStorage.getItem('loop_answer_key_simple');
+const savedKey = localStorage.getItem('loop_key_missingdigit');
 if (savedKey) answerKeyEl.value = savedKey;
 
 applyKeyBtn.onclick = ()=>{
@@ -196,12 +197,12 @@ applyKeyBtn.onclick = ()=>{
   if (!answerKeyMap.size) alert('정답표 예시: 1:3 2:5');
 };
 saveKeyBtn.onclick = ()=>{
-  localStorage.setItem('loop_answer_key_simple', answerKeyEl.value.trim());
+  localStorage.setItem('loop_key_missingdigit', answerKeyEl.value.trim());
   alert('저장했어요.');
 };
 clearKeyBtn.onclick = ()=>{
   answerKeyEl.value = '';
-  localStorage.removeItem('loop_answer_key_simple');
+  localStorage.removeItem('loop_key_missingdigit');
   answerKeyMap = new Map();
   keyStatus.textContent = '';
 };
@@ -226,17 +227,17 @@ const liveInfo = $('#liveInfo');
 let stream = null;
 let editMode = true;
 
-// 박스는 비율 좌표로 저장
+// 박스 비율 좌표
 let choiceBox = { x:0.08, y:0.65, w:0.84, h:0.22 };
 
 function loadBox(){
-  const saved = localStorage.getItem('loop_choice_box_simple');
+  const saved = localStorage.getItem('loop_box_missingdigit');
   if (saved){
     try{ choiceBox = JSON.parse(saved); }catch{}
   }
 }
 function saveBox(){
-  localStorage.setItem('loop_choice_box_simple', JSON.stringify(choiceBox));
+  localStorage.setItem('loop_box_missingdigit', JSON.stringify(choiceBox));
 }
 loadBox();
 
@@ -308,7 +309,6 @@ function renderBox(){
 
   window.addEventListener('resize', applyPos);
 }
-
 renderBox();
 
 startCamBtn.onclick = async ()=>{
@@ -353,28 +353,129 @@ prevQBtn.onclick = ()=> qNumEl.value = Math.max(1, (parseInt(qNumEl.value,10)||1
 nextQBtn.onclick = ()=> qNumEl.value = (parseInt(qNumEl.value,10)||1) + 1;
 
 /* =========================
-   3) “안 보임(기호 사라짐/● 등장)” 판정
+   3) OCR로 “빠진 숫자” 찾기
 ========================= */
 let liveOn = false;
 let busy = false;
 
-// 같은 판단이 연속으로 나와야 확정(흔들림 방지)
-let history = [];
-const HISTORY_N = 4;     // 더 보수적으로(정확도↑)
-const TICK_MS = 420;     // iPad 발열/속도 타협
+// OCR는 무거워서 너무 자주 돌리면 아이패드가 버벅임
+const OCR_INTERVAL_MS = 900;
 
-// 결과
+// “안정화”: 같은 결과가 여러 번 연속 나오면 확정
+let history = [];
+const HISTORY_N = 3;
+
+function stableChoiceUpdate(choice){
+  if (choice){
+    history.push(choice);
+    if (history.length > HISTORY_N) history.shift();
+  } else {
+    history = [];
+  }
+  const stable = (history.length === HISTORY_N && history.every(v=>v===history[0]));
+  return stable ? history[0] : null;
+}
+
+function getFrameCanvas(){
+  const vw = cam.videoWidth || 640;
+  const vh = cam.videoHeight || 480;
+  const c = document.createElement('canvas');
+  c.width = vw; c.height = vh;
+  c.getContext('2d').drawImage(cam, 0, 0, vw, vh);
+  return c;
+}
+
+// OCR용 전처리: ROI를 확대 + 흑백(임계값)
+function makeOcrCanvasFromRoi(frame){
+  const vw = frame.width, vh = frame.height;
+  const bx = Math.round(choiceBox.x * vw);
+  const by = Math.round(choiceBox.y * vh);
+  const bw = Math.round(choiceBox.w * vw);
+  const bh = Math.round(choiceBox.h * vh);
+
+  // 확대 (숫자가 클수록 OCR이 잘됨)
+  const scale = 2.6;
+  const ow = Math.max(300, Math.round(bw * scale));
+  const oh = Math.max(120, Math.round(bh * scale));
+
+  const out = document.createElement('canvas');
+  out.width = ow; out.height = oh;
+  const ctx = out.getContext('2d');
+
+  // ROI를 확대해서 복사
+  ctx.drawImage(frame, bx, by, bw, bh, 0, 0, ow, oh);
+
+  // 흑백(임계값)으로 변환
+  const img = ctx.getImageData(0,0,ow,oh);
+  const d = img.data;
+
+  // 평균 밝기로 임계값 자동
+  let sum = 0;
+  const N = ow * oh;
+  for (let i=0;i<d.length;i+=4){
+    const lum = (d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114);
+    sum += lum;
+  }
+  const mean = sum / N;
+  const thr = Math.max(70, mean - 25); // 너무 어두운 환경에서도 버티게
+
+  for (let i=0;i<d.length;i+=4){
+    const lum = (d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114);
+    const v = (lum < thr) ? 0 : 255;
+    d[i]=d[i+1]=d[i+2]=v;
+    d[i+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+  return out;
+}
+
+function pickMissingDigitFromText(text){
+  // text에서 1~5만 뽑아 Set으로 만들기
+  const matches = (text || '').match(/[1-5]/g) || [];
+  const set = new Set(matches);
+
+  // “보이는 숫자가 딱 4개”일 때만 missing을 확정
+  if (set.size !== 4) return null;
+
+  for (let i=1;i<=5;i++){
+    if (!set.has(String(i))) return i; // 빠진 숫자 = 내 답
+  }
+  return null;
+}
+
+/* ===== OCR 워커 준비 ===== */
+let worker = null;
+let workerReady = false;
+
+async function ensureWorker(){
+  if (workerReady) return;
+  setStatus('OCR 준비 중...');
+  worker = await Tesseract.createWorker();
+  await worker.loadLanguage('eng');
+  await worker.initialize('eng');
+  // 숫자 1~5만 읽게 제한 (잡음 감소)
+  await worker.setParameters({
+    tessedit_char_whitelist: '12345',
+    preserve_interword_spaces: '1'
+  });
+  workerReady = true;
+  setStatus('OCR 준비됨');
+}
+
+/* =========================
+   4) 결과/오답/ZIP
+========================= */
 const resultLine = $('#resultLine');
 const resultTable = $('#resultTable');
 const resultBody = $('#resultBody');
 const clearResultsBtn = $('#clearResults');
-let gradedResults = new Map();
 
-// 오답
 const exportZipBtn = $('#exportZip');
 const clearWrongBtn = $('#clearWrong');
 const thumbsEl = $('#thumbs');
 const wrongStatus = $('#wrongStatus');
+
+let gradedResults = new Map();
 let wrongItems = [];
 
 function refreshWrongUI(){
@@ -394,21 +495,21 @@ function refreshWrongUI(){
   exportZipBtn.disabled = wrongItems.length === 0;
   wrongStatus.textContent = wrongItems.length ? `오답 ${wrongItems.length}개 저장됨` : '';
 }
-function saveWrongToStorage(){
-  try{ localStorage.setItem('loop_wrong_simple', JSON.stringify(wrongItems)); }catch{}
+function saveWrong(){
+  try{ localStorage.setItem('loop_wrong_missingdigit', JSON.stringify(wrongItems)); }catch{}
 }
-function loadWrongFromStorage(){
-  const saved = localStorage.getItem('loop_wrong_simple');
+function loadWrong(){
+  const saved = localStorage.getItem('loop_wrong_missingdigit');
   if (saved){
     try{ wrongItems = JSON.parse(saved) || []; }catch{}
   }
   refreshWrongUI();
 }
-loadWrongFromStorage();
+loadWrong();
 
 clearWrongBtn.onclick = ()=>{
   wrongItems = [];
-  localStorage.removeItem('loop_wrong_simple');
+  localStorage.removeItem('loop_wrong_missingdigit');
   refreshWrongUI();
 };
 
@@ -418,148 +519,6 @@ clearResultsBtn.onclick = ()=>{
   resultTable.style.display = 'none';
   resultLine.textContent = '아직 결과가 없습니다.';
 };
-
-function getFrameCanvas(){
-  const vw = cam.videoWidth || 640;
-  const vh = cam.videoHeight || 480;
-  const c = document.createElement('canvas');
-  c.width = vw; c.height = vh;
-  c.getContext('2d').drawImage(cam, 0, 0, vw, vh);
-  return c;
-}
-
-function stableChoiceUpdate(choice){
-  if (choice){
-    history.push(choice);
-    if (history.length > HISTORY_N) history.shift();
-  } else {
-    history = [];
-  }
-  const stable = (history.length === HISTORY_N && history.every(v=>v===history[0]));
-  return stable ? history[0] : null;
-}
-
-/*
-  핵심 아이디어(“안 보임” 판정):
-  - 박스 영역을 5칸으로 나눔
-  - 각 칸에서 “기호 자리(왼쪽 일부)”만 봄 (10/20/30 텍스트는 최대한 배제)
-  - 그 기호 자리에서
-    A) 바깥쪽(테두리) 쪽이 어두우면: 동그라미 기호(①) 존재 가능성↑
-    B) 가운데가 아주 어두우면: ●(채워진 점) 또는 가려짐 가능성↑
-  - 최종적으로 “기호가 사라졌거나 ●가 생긴 칸”이 1개면 그게 답
-*/
-function detectMissingOrDot(frame){
-  const vw = frame.width, vh = frame.height;
-
-  const bx = Math.round(choiceBox.x * vw);
-  const by = Math.round(choiceBox.y * vh);
-  const bw = Math.round(choiceBox.w * vw);
-  const bh = Math.round(choiceBox.h * vh);
-
-  // 축소해서 빠르게 분석
-  const targetW = 650;
-  const scale = targetW / Math.max(1, bw);
-  const tw = Math.max(260, Math.round(bw * Math.min(1, scale)));
-  const th = Math.max(110, Math.round(bh * Math.min(1, scale)));
-
-  const cut = document.createElement('canvas');
-  cut.width = tw; cut.height = th;
-  const ctx = cut.getContext('2d');
-  ctx.drawImage(frame, bx, by, bw, bh, 0, 0, tw, th);
-
-  const img = ctx.getImageData(0,0,tw,th);
-  const d = img.data;
-
-  // 밝기 평균 기반 임계값(조명 자동 보정)
-  let sum = 0;
-  const N = tw * th;
-  for (let i=0;i<d.length;i+=4){
-    const r=d[i], g=d[i+1], b=d[i+2];
-    sum += (r*0.299 + g*0.587 + b*0.114);
-  }
-  const mean = sum / N;
-  const thr = Math.max(50, mean - 38); // lum < thr => '어두움'
-
-  const segW = tw / 5;
-
-  // “기호 자리”만 보기: 각 칸의 왼쪽 35% (고정. UI 단순화)
-  const markerRatio = 0.35;
-
-  // 위아래 조금 자르기(글자/그림자 영향 줄이기)
-  const y0 = Math.round(th * 0.12);
-  const y1 = Math.round(th * 0.88);
-
-  const stats = []; // [{ringDark, centerDark}]
-  for (let s=0;s<5;s++){
-    const sx0 = Math.round(s * segW);
-    const sx1 = Math.round(sx0 + segW * markerRatio);
-
-    const w = Math.max(10, sx1 - sx0);
-    const h = Math.max(10, y1 - y0);
-
-    // 가운데(●가 있으면 확 어두움)
-    const cx0 = sx0 + Math.round(w * 0.32);
-    const cx1 = sx0 + Math.round(w * 0.68);
-    const cy0 = y0  + Math.round(h * 0.32);
-    const cy1 = y0  + Math.round(h * 0.68);
-
-    // 테두리(동그라미가 있으면 어두움): 바깥 띠 영역
-    const border = Math.max(2, Math.round(Math.min(w,h) * 0.18));
-
-    let ringDark=0, ringTot=0;
-    let centerDark=0, centerTot=0;
-
-    for (let y=y0; y<y1; y++){
-      for (let x=sx0; x<sx1; x++){
-        const idx = (y*tw + x)*4;
-        const lum = (d[idx]*0.299 + d[idx+1]*0.587 + d[idx+2]*0.114);
-        const isDark = (lum < thr) ? 1 : 0;
-
-        // center
-        if (x>=cx0 && x<cx1 && y>=cy0 && y<cy1){
-          centerDark += isDark;
-          centerTot++;
-        }
-
-        // ring border region
-        const inBorder =
-          (x < sx0 + border) || (x >= sx1 - border) ||
-          (y < y0 + border)  || (y >= y1 - border);
-
-        if (inBorder){
-          ringDark += isDark;
-          ringTot++;
-        }
-      }
-    }
-
-    stats.push({
-      ringDark: ringDark / Math.max(1, ringTot),
-      centerDark: centerDark / Math.max(1, centerTot),
-    });
-  }
-
-  // “안 보임 후보”를 찾는다.
-  // 1) 원형(①)이 사라지면 ringDark가 낮아질 가능성↑
-  // 2) ●가 생기면 centerDark가 높아질 가능성↑
-  const missingCandidates = [];
-  const dotCandidates = [];
-
-  for (let i=0;i<5;i++){
-    const {ringDark, centerDark} = stats[i];
-    if (ringDark < 0.08) missingCandidates.push(i+1);   // 동그라미 테두리 없음
-    if (centerDark > 0.22) dotCandidates.push(i+1);     // 가운데가 꽤 검음(●/가림)
-  }
-
-  // 우선순위: “딱 1개 missing”이면 그게 답 (네가 말한 ‘안 보임’ 원리 그대로)
-  if (missingCandidates.length === 1) return missingCandidates[0];
-
-  // 그게 안 되면, “딱 1개 dot”이면 그게 답 (●로 바뀌는 문제집 대응)
-  if (dotCandidates.length === 1) return dotCandidates[0];
-
-  // 그래도 애매하면 null
-  return null;
-}
 
 function renderResult(q, correct, my, ok, frame){
   gradedResults.set(q, {correct, my, ok, time: Date.now()});
@@ -582,82 +541,12 @@ function renderResult(q, correct, my, ok, frame){
       cap.getContext('2d').drawImage(frame, 0, 0);
       const dataUrl = cap.toDataURL('image/jpeg', 0.85);
       wrongItems.push({ q, correct, my, dataUrl });
-      saveWrongToStorage();
+      saveWrong();
       refreshWrongUI();
     }
   }
 }
 
-async function tick(){
-  if (!liveOn) return;
-  if (busy){ setTimeout(tick, 120); return; }
-  busy = true;
-
-  try{
-    const q = parseInt(qNumEl.value,10) || 1;
-    const correct = answerKeyMap.get(q) || null;
-
-    const frame = getFrameCanvas();
-    const raw = detectMissingOrDot(frame);
-    const finalChoice = stableChoiceUpdate(raw);
-
-    liveInfo.textContent =
-      finalChoice ? `내 답 확정: ${finalChoice}` :
-      (raw ? `감지 중: ${raw}` : '감지 중...');
-
-    if (finalChoice && correct){
-      const ok = (finalChoice === correct);
-      const prev = gradedResults.get(q);
-      if (!prev || prev.my !== finalChoice){
-        renderResult(q, correct, finalChoice, ok, frame);
-      }
-    } else if (finalChoice && !correct){
-      resultLine.textContent = `Q${q} • 내 답은 ${finalChoice}인데, 정답표에 Q${q} 정답이 없어요.`;
-    }
-
-    setStatus('LIVE ON', true);
-  }catch(e){
-    console.error(e);
-    setStatus('에러', true);
-  }finally{
-    busy = false;
-    setTimeout(tick, TICK_MS);
-  }
-}
-
-startLiveBtn.onclick = ()=>{
-  if (!cam.srcObject){ alert('먼저 “카메라 켜기”를 눌러주세요.'); return; }
-  if (!answerKeyMap.size){ alert('먼저 “정답표 적용”을 눌러 주세요.'); return; }
-
-  liveOn = true;
-
-  // 라이브 중에는 박스 잠금(그래도 눈에는 보임)
-  editMode = false;
-  toggleEditBtn.textContent = '편집 모드: OFF';
-  renderBox();
-
-  startLiveBtn.disabled = true;
-  stopLiveBtn.disabled = false;
-  history = [];
-  setStatus('LIVE ON', true);
-  tick();
-};
-
-stopLiveBtn.onclick = ()=>{
-  liveOn = false;
-  setStatus('중지');
-  startLiveBtn.disabled = false;
-  stopLiveBtn.disabled = true;
-  history = [];
-};
-
-window.addEventListener('beforeunload', ()=>{
-  if (stream){ stream.getTracks().forEach(t=>t.stop()); }
-});
-
-/* =========================
-   4) ZIP 내보내기
-========================= */
 exportZipBtn.onclick = async ()=>{
   if (!wrongItems.length){ alert('오답이 없습니다.'); return; }
 
@@ -685,39 +574,94 @@ exportZipBtn.onclick = async ()=>{
 };
 
 /* =========================
-   시작시 UI
+   5) 라이브 OCR 루프
 ========================= */
-const savedWrong = localStorage.getItem('loop_wrong_simple');
-try{ wrongItems = savedWrong ? JSON.parse(savedWrong) : []; }catch{ wrongItems = []; }
-refreshWrongUI();
-function saveWrongToStorage(){ localStorage.setItem('loop_wrong_simple', JSON.stringify(wrongItems)); }
+async function ocrTick(){
+  if (!liveOn) return;
+  if (busy){ setTimeout(ocrTick, 120); return; }
+  busy = true;
 
-toggleEditBtn.disabled = true;
-
-startCamBtn.addEventListener('click', ()=>{ /* already set above */ });
-
-/* 카메라 켠 뒤 버튼 활성화 */
-startCamBtn.onclick = async ()=>{
   try{
-    stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ideal:'environment'} },
-      audio:false
-    });
-    cam.srcObject = stream;
-    await cam.play();
+    const q = parseInt(qNumEl.value,10) || 1;
+    const correct = answerKeyMap.get(q) || null;
 
-    toggleEditBtn.disabled = false;
-    saveBoxBtn.disabled = false;
-    resetBoxBtn.disabled = false;
-    startLiveBtn.disabled = false;
+    const frame = getFrameCanvas();
+    const ocrCanvas = makeOcrCanvasFromRoi(frame);
 
-    setStatus('카메라 준비됨');
-    renderBox();
+    // OCR 실행
+    const { data } = await worker.recognize(ocrCanvas);
+    const rawText = (data && data.text) ? data.text : '';
+
+    // 빠진 숫자 찾기
+    const rawChoice = pickMissingDigitFromText(rawText);
+    const finalChoice = stableChoiceUpdate(rawChoice);
+
+    // 화면 표시
+    if (finalChoice){
+      liveInfo.textContent = `내 답 확정: ${finalChoice}`;
+    } else if (rawChoice){
+      liveInfo.textContent = `감지 중: ${rawChoice} (확정 전)`;
+    } else {
+      // 디버그용으로 OCR 결과 일부 보여줌(너무 길면 자름)
+      const shown = rawText.replace(/\s+/g,' ').trim().slice(0, 30);
+      liveInfo.textContent = shown ? `OCR: "${shown}"` : '감지 중...';
+    }
+
+    if (finalChoice && correct){
+      const ok = (finalChoice === correct);
+      const prev = gradedResults.get(q);
+      if (!prev || prev.my !== finalChoice){
+        renderResult(q, correct, finalChoice, ok, frame);
+      }
+    } else if (finalChoice && !correct){
+      resultLine.textContent = `Q${q} • 내 답은 ${finalChoice}인데, 정답표에 Q${q} 정답이 없어요.`;
+    }
+
+    setStatus('LIVE ON', true);
   }catch(e){
     console.error(e);
-    alert('카메라 권한을 허용해 주세요.');
+    setStatus('에러', true);
+  }finally{
+    busy = false;
+    setTimeout(ocrTick, OCR_INTERVAL_MS);
   }
+}
+
+startLiveBtn.onclick = async ()=>{
+  if (!cam.srcObject){ alert('먼저 “카메라 켜기”를 눌러주세요.'); return; }
+  if (!answerKeyMap.size){ alert('먼저 “정답표 적용”을 눌러 주세요.'); return; }
+
+  await ensureWorker();
+
+  liveOn = true;
+
+  // 라이브 중에는 박스 잠금(보이긴 보임)
+  editMode = false;
+  toggleEditBtn.textContent = '편집 모드: OFF';
+  renderBox();
+
+  startLiveBtn.disabled = true;
+  stopLiveBtn.disabled = false;
+
+  history = [];
+  setStatus('LIVE ON', true);
+  ocrTick();
 };
+
+stopLiveBtn.onclick = ()=>{
+  liveOn = false;
+  setStatus('중지');
+  startLiveBtn.disabled = false;
+  stopLiveBtn.disabled = true;
+  history = [];
+};
+
+window.addEventListener('beforeunload', async ()=>{
+  try{
+    if (worker){ await worker.terminate(); }
+  }catch{}
+  if (stream){ stream.getTracks().forEach(t=>t.stop()); }
+});
 </script>
 </body>
 </html>
